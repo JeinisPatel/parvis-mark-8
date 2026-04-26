@@ -1585,46 +1585,228 @@ with TABS[5]:
 
 # ── T4: Morris/Ellis SCE ──────────────────────────────────────────────────────
 with TABS[6]:
-    st.markdown("### Morris / Ellis SCE")
-    st.caption("*R v Morris* 2021 ONCA 680 · *R v Ellis* 2022 BCCA 278")
-    st.markdown(dobar(P[20]),unsafe_allow_html=True)
-    c1,c2=st.columns([1,2])
-    with c1:
-        fw=st.radio("Framework",["Morris","Ellis","Both"],
-                    index=["morris","ellis","both"].index((st.session_state.scefw or "morris").lower() if (st.session_state.scefw or "morris").lower() in ["morris","ellis","both"] else 0),key="scefw_r")
-        st.session_state.scefw=fw.lower()
-    with c2:
-        if (st.session_state.scefw or "morris").lower()!="ellis":
-            st.markdown("**Morris para 97 — connection gate**")
-            conn=st.select_slider("Connection strength",["none","absent","weak","moderate","strong","direct"],
-                                  value=st.session_state.conn,key="conn_s")
-            st.session_state.conn=conn
-            st.info(f"Weight multiplier: **{cmult():.0%}** — {'full belief revision obligation' if cmult()>=.9 else 'partial' if cmult()>=.6 else 'limited'}")
-        if (st.session_state.scefw or "morris").lower()!="morris":
-            nx_v=st.selectbox("Ellis deprivation nexus",["none","peripheral","relevant","central"],
-                              index=["none","peripheral","relevant","central"].index(st.session_state.enex),key="enex_s")
-            st.session_state.enex=nx_v
-    st.markdown("---")
-    # ── SCE factors as continuous sliders (0 = absent, 1 = fully established) ──
-    ss={}
+    # ════════════════════════════════════════════════════════════════════════
+    # SCE tab — full visual rebuild (Mark 8)
+    # All session-state keys preserved: scefw, conn, enex, sce_values, sce_checked
+    # All widget keys preserved: scefw_r, conn_s, enex_s, sce_{factor_id}
+    # cmult() / emult() / SF filter logic byte-for-byte preserved.
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Tab title + caption ───────────────────────────────────────────────
+    st.markdown(
+        "<h2 style='font-family:Fraunces,Georgia,serif;font-size:1.7rem;"
+        "font-weight:500;letter-spacing:-0.005em;margin:0 0 4px 0'>"
+        "Social context evidence</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.92rem;color:#707070;margin-bottom:18px;line-height:1.6;"
+        "max-width:880px'>"
+        "<em>Morris</em> and <em>Ellis</em> are the two principal frameworks "
+        "Canadian courts use to weigh systemic and structural factors in "
+        "sentencing. Each factor is entered as a continuous evidentiary "
+        "strength (0 = absent, 1 = fully established), allowing partial-"
+        "evidence cases to register without the binary on/off limitation "
+        "of a checklist."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Doctrinal anchor strip ────────────────────────────────────────────
+    st.markdown(
+        "<div style='background:#E8F0FA;border:1px solid #C7D3E5;"
+        "border-left:3px solid #185FA5;border-radius:6px;padding:10px 18px;"
+        "margin-bottom:22px;font-size:0.84rem;color:#3A3A3A;line-height:1.55;"
+        "max-width:880px'>"
+        "<strong style='color:#185FA5;font-weight:600'>Binding authorities.</strong> "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>R v Morris</em> 2021 ONCA 680 — racialized offenders · "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>R v Ellis</em> 2022 BCCA 278 — non-racialized deprivation · "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>R v Anderson</em> [2014] 2 SCR 167 — IRCA framework. "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>Morris</em> para 97 establishes the connection-gate "
+        "doctrine governing how systemic context is weighted into sentencing."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Command panel: framework selector + connection gate ───────────────
+    cmd_c1, cmd_c2 = st.columns([1, 2])
+    with cmd_c1:
+        st.markdown(
+            "<div style='font-size:0.66rem;text-transform:uppercase;"
+            "letter-spacing:0.14em;color:#707070;font-weight:600;"
+            "margin-bottom:6px'>Active framework</div>",
+            unsafe_allow_html=True,
+        )
+        fw = st.radio(
+            "Framework",
+            ["Morris", "Ellis", "Both"],
+            index=["morris","ellis","both"].index(
+                (st.session_state.scefw or "morris").lower()
+                if (st.session_state.scefw or "morris").lower() in ["morris","ellis","both"]
+                else 0
+            ),
+            key="scefw_r",
+            label_visibility="collapsed",
+            horizontal=True,
+        )
+        st.session_state.scefw = fw.lower()
+        # Framework-specific descriptive caption
+        _fw_caption = {
+            "morris": "<em>Morris</em> applies to racialized offenders.",
+            "ellis":  "<em>Ellis</em> applies to non-racialized offenders with deprivation backgrounds.",
+            "both":   "<strong style='font-style:normal;color:#1A1A1A'>Both</strong> shows all sections — useful for full-record review and audit preparation.",
+        }.get(st.session_state.scefw, "")
+        st.markdown(
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.78rem;color:#707070;margin-top:6px;line-height:1.55'>"
+            f"{_fw_caption}</div>",
+            unsafe_allow_html=True,
+        )
+
+    with cmd_c2:
+        if (st.session_state.scefw or "morris").lower() != "ellis":
+            st.markdown(
+                "<div style='display:flex;justify-content:space-between;"
+                "align-items:baseline;margin-bottom:6px'>"
+                "<span style='font-size:0.86rem;font-weight:600;color:#1A1A1A'>"
+                "Morris para 97 — connection gate</span>"
+                "<span style='font-family:Fraunces,serif;font-style:italic;"
+                "font-size:0.78rem;color:#707070'>R v Morris §97</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            conn = st.select_slider(
+                "Connection strength",
+                ["none","absent","weak","moderate","strong","direct"],
+                value=st.session_state.conn, key="conn_s",
+                label_visibility="collapsed",
+            )
+            st.session_state.conn = conn
+            _cm = cmult()
+            _cm_desc = ("full belief revision obligation" if _cm >= .9
+                        else "partial belief revision obligation" if _cm >= .6
+                        else "limited belief revision obligation")
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:baseline;font-size:0.84rem;margin-top:6px'>"
+                f"<span style='color:#707070'>Weight multiplier (cmult)</span>"
+                f"<span style='font-family:JetBrains Mono,monospace;"
+                f"font-weight:600;color:#185FA5'>{_cm:.2f}</span></div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#707070;margin-top:2px;line-height:1.5'>"
+                f"{_cm_desc}. SCE corrections weighted at {_cm*100:.0f}% of established evidentiary strength."
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        if (st.session_state.scefw or "morris").lower() != "morris":
+            st.markdown(
+                "<div style='display:flex;justify-content:space-between;"
+                "align-items:baseline;margin-top:14px;margin-bottom:6px'>"
+                "<span style='font-size:0.86rem;font-weight:600;color:#1A1A1A'>"
+                "Ellis deprivation nexus</span>"
+                "<span style='font-family:Fraunces,serif;font-style:italic;"
+                "font-size:0.78rem;color:#707070'>R v Ellis 2022 BCCA 278</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            nx_v = st.selectbox(
+                "Ellis deprivation nexus",
+                ["none","peripheral","relevant","central"],
+                index=["none","peripheral","relevant","central"].index(st.session_state.enex),
+                key="enex_s",
+                label_visibility="collapsed",
+            )
+            st.session_state.enex = nx_v
+            _em = emult()
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:baseline;font-size:0.84rem;margin-top:6px'>"
+                f"<span style='color:#707070'>Weight multiplier (emult)</span>"
+                f"<span style='font-family:JetBrains Mono,monospace;"
+                f"font-weight:600;color:#534AB7'>{_em:.2f}</span></div>",
+                unsafe_allow_html=True,
+            )
+
+    # Visual separator
+    st.markdown(
+        "<div style='border-top:1px solid #EFEDE7;margin:24px 0 18px 0'></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── SCE factors as continuous sliders (logic preserved) ──────────────
+    ss = {}
     for f in SF:
-        fw2=(st.session_state.scefw or "morris").lower()
-        show=fw2=="both" or (fw2=="morris" and f["fw"]!="ellis") or (fw2=="ellis" and f["fw"]!="morris")
-        if show: ss.setdefault(f["sec"],[]).append(f)
+        fw2 = (st.session_state.scefw or "morris").lower()
+        show = (fw2 == "both"
+                or (fw2 == "morris" and f["fw"] != "ellis")
+                or (fw2 == "ellis" and f["fw"] != "morris"))
+        if show:
+            ss.setdefault(f["sec"], []).append(f)
 
     sce_vals = dict(st.session_state.get("sce_values", {}))
-    st.markdown("<div style='font-size:12px;color:#888;margin-bottom:8px'>"
-                "Slide each factor from <b>0</b> (absent) → <b>0.5</b> (partial) → <b>1.0</b> (fully established). "
-                "Partial values encode degrees of evidentiary strength.</div>",
-                unsafe_allow_html=True)
 
-    cols3=st.columns(3)
-    for i,(sec,facs) in enumerate(ss.items()):
-        with cols3[i%3]:
-            st.markdown(f"<div class='sh'>{sec}</div>",unsafe_allow_html=True)
+    # Section type header — explains the slider register
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.86rem;color:#707070;margin-bottom:14px;line-height:1.55;"
+        "max-width:880px'>"
+        "Slide each factor from "
+        "<strong style='font-style:normal;color:#1A1A1A'>0</strong> (absent) → "
+        "<strong style='font-style:normal;color:#1A1A1A'>0.5</strong> (partial) → "
+        "<strong style='font-style:normal;color:#1A1A1A'>1.0</strong> (fully established). "
+        "Partial values encode degrees of evidentiary strength rather than binary presence."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Section → framework mapping for visual treatment
+    def _sce_section_framework(facs):
+        """Return (framework_key, stripe_color, pill_label, pill_color)."""
+        # Determine which framework owns this section based on its factors
+        fws = set(f["fw"] for f in facs)
+        if fws == {"ellis"}:
+            return ("ellis", "#534AB7", "ELLIS", "#ECE9F7")
+        elif fws == {"both"}:
+            return ("both", "#993C1D", "BOTH", "#FAEEDA")
+        else:
+            return ("morris", "#185FA5", "MORRIS", "#E8F0FA")
+
+    # Render section cards in a 3-column grid (preserves cols3 layout intent)
+    cols3 = st.columns(3)
+    for i, (sec, facs) in enumerate(ss.items()):
+        fw_key, stripe_col, pill_label, pill_bg = _sce_section_framework(facs)
+        # Pill text colour matches stripe
+        pill_text_col = stripe_col
+        # Pill border
+        pill_border = {"#185FA5": "#C7D3E5", "#534AB7": "#C9C0E5", "#993C1D": "#E5CC95"}.get(stripe_col, "#E0DDD6")
+
+        with cols3[i % 3]:
+            # Section header card
+            st.markdown(
+                f"<div style='background:#FFFFFF;border:1px solid #E0DDD6;"
+                f"border-radius:8px;overflow:hidden;margin-bottom:16px'>"
+                f"<div style='display:grid;grid-template-columns:4px 1fr auto;"
+                f"gap:12px;align-items:center;padding:12px 14px;"
+                f"background:#FBFAF7;border-bottom:1px solid #EFEDE7'>"
+                f"<div style='width:4px;height:24px;border-radius:2px;align-self:center;"
+                f"background:{stripe_col}'></div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+                f"font-weight:500;color:#1A1A1A'>{sec}</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.66rem;"
+                f"padding:2px 8px;border-radius:9px;background:{pill_bg};"
+                f"color:{pill_text_col};border:1px solid {pill_border};font-weight:600;"
+                f"letter-spacing:0.04em'>{pill_label}</div>"
+                f"</div>"
+                f"<div style='padding:8px 14px 6px 14px'>",
+                unsafe_allow_html=True,
+            )
+
+            # Render the native sliders inside the card body
             for f in facs:
-                fw2=(st.session_state.scefw or "morris").lower()
-                col_sce = "#185FA5" if fw2=="morris" or f["fw"]=="both" else "#534AB7"
+                fw2 = (st.session_state.scefw or "morris").lower()
+                col_sce = "#185FA5" if (fw2 == "morris" or f["fw"] == "both") else "#534AB7"
                 cur_val = sce_vals.get(f["id"], 0.0)
                 v = st.slider(
                     f"{f['l']} · N{f['n']}",
@@ -1634,19 +1816,66 @@ with TABS[6]:
                 )
                 sce_vals[f["id"]] = v
                 if v > 0.01:
-                    pct = f"+{v*f['w']*cmult()*100:.1f}pp" if fw2!="ellis" else f"+{v*f['w']*emult()*100:.1f}pp"
+                    pct = (f"+{v*f['w']*cmult()*100:.1f}pp"
+                           if fw2 != "ellis"
+                           else f"+{v*f['w']*emult()*100:.1f}pp")
+                    # Tier dots — 5-segment progress indicator
+                    n_dots = min(int(v*5)+1, 5)
+                    dots_html = "".join([
+                        f"<span style='display:inline-block;width:5px;height:5px;"
+                        f"border-radius:50%;background:{col_sce};margin-right:3px'></span>"
+                        if d < n_dots else
+                        f"<span style='display:inline-block;width:5px;height:5px;"
+                        f"border-radius:50%;background:#E0DDD6;margin-right:3px'></span>"
+                        for d in range(5)
+                    ])
                     st.markdown(
-                        f"<div style='font-size:.68rem;color:{col_sce};"
-                        f"margin-top:-12px;margin-bottom:4px'>"
-                        f"{'●' * min(int(v*5)+1, 5)} {v*100:.0f}% established · {pct}</div>",
-                        unsafe_allow_html=True
+                        f"<div style='display:flex;justify-content:space-between;"
+                        f"align-items:baseline;margin-top:-12px;margin-bottom:8px;"
+                        f"font-size:0.74rem'>"
+                        f"<span style='color:#707070;font-family:Fraunces,serif;"
+                        f"font-style:italic'>"
+                        f"<span style='display:inline-block;vertical-align:middle;"
+                        f"margin-right:6px'>{dots_html}</span>"
+                        f"{v*100:.0f}% established</span>"
+                        f"<span style='font-family:JetBrains Mono,monospace;"
+                        f"color:{col_sce};font-weight:500'>{pct}</span></div>",
+                        unsafe_allow_html=True,
                     )
+
+            # Close section card
+            st.markdown("</div></div>", unsafe_allow_html=True)
 
     st.session_state.sce_values = sce_vals
     # Keep sce_checked in sync for backwards compatibility with QBism diagnostics
-    st.session_state.sce_checked = {fid for fid,v in sce_vals.items() if v > 0.01}
-    run_inf();P=st.session_state.posteriors
-    st.success(f"Node 20: **{P[20]*100:.1f}%** · {rb(P[20])[0]}")
+    st.session_state.sce_checked = {fid for fid, v in sce_vals.items() if v > 0.01}
+    run_inf()
+    P = st.session_state.posteriors
+    bl_sce, _bc_sce, _bg_sce = rb(P[20])
+
+    # ── Slim live-result strip ───────────────────────────────────────────
+    _n_active = len(st.session_state.sce_checked)
+    _band_text_sce = {
+        "Low":      f"belief largely resolved · {_n_active} factor(s) active",
+        "Moderate": f"belief partially resolved · {_n_active} factor(s)",
+        "Elevated": f"belief shifted · {_n_active} factor(s)",
+        "High":     f"strong indication · {_n_active} factor(s)",
+    }.get(bl_sce, bl_sce)
+    st.markdown(
+        f"<div style='display:grid;grid-template-columns:1fr auto;"
+        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+        f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
+        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+        f"Node 20 · DO designation risk"
+        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+        f"</div>"
+        f"<div style='font-family:Fraunces,serif;font-style:italic;"
+        f"font-size:0.86rem;color:#2F5C2A'>{bl_sce} — {_band_text_sce}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── T5: Evidence review ───────────────────────────────────────────────────────
 with TABS[7]:
