@@ -1706,7 +1706,11 @@ with TABS[11]:
         td_c1, td_c2 = st.columns([1.2, 1])
         with td_c1:
             try:
-                fig = draw_bloch_sphere(p_high_n20, st.session_state.scefw or "morris")
+                _fw_label = (st.session_state.scefw or "morris").title()
+                fig = draw_bloch_sphere(
+                    p_high_n20,
+                    title=f"Belief state — {_fw_label} framework"
+                )
                 st.pyplot(fig, use_container_width=True)
             except Exception as _e:
                 st.info(f"Bloch sphere visualisation unavailable: {_e}")
