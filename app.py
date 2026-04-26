@@ -536,19 +536,23 @@ def _sync_profile_from_widgets():
     idbg   = ss.get("id_bg", "Not recorded / unknown")
     pclr   = ss.get("pclr", 20)
     s99    = ss.get("s99", 3)
-    viol   = ss.get("viol", "Serious")
+    # Mark 8 fix: fallback defaults aligned with actual Streamlit widget defaults
+    # (each selectbox defaults to its first option). Prior to this, the fallbacks
+    # were biased toward high-severity values, which caused the first-paint
+    # header DO chip to show ~31.5% before snapping to ~24.9% on widget population.
+    viol   = ss.get("viol", "None")
     fasd   = ss.get("fasd", "None / not assessed")
-    sub    = ss.get("sub", "Moderate")
-    peers  = ss.get("peers", "Some — limited")
-    stab   = ss.get("stab", "Marginal")
+    sub    = ss.get("sub", "None / in remission")
+    peers  = ss.get("peers", "None identified")
+    stab   = ss.get("stab", "Stable")
     det    = ss.get("det", 60)
-    counsel= ss.get("counsel", "Marginal")
-    gr     = ss.get("gr", "No report commissioned")
-    tools  = ss.get("tools", "Standard, no cultural qualification")
-    pol    = ss.get("pol", "Strong — documented over-surveillance")
-    prov   = ss.get("prov", "Medium rate")
-    prog   = ss.get("prog", "Limited availability")
-    rehab  = ss.get("rehab", "Minimal")
+    counsel= ss.get("counsel", "Adequate")
+    gr     = ss.get("gr", "Yes — full report before court")
+    tools  = ss.get("tools", "Culturally validated only")
+    pol    = ss.get("pol", "No evidence")
+    prov   = ss.get("prov", "Low DO designation rate")
+    prog   = ss.get("prog", "Yes — full culturally grounded")
+    rehab  = ss.get("rehab", "Strong — consistent")
 
     isr = idbg in ["Indigenous — s.718.2(e) + Gladue","Black — Morris IRCA","Other racialized — Morris"]
     pev={}
