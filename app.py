@@ -1879,29 +1879,245 @@ with TABS[6]:
 
 # ── T5: Evidence review ───────────────────────────────────────────────────────
 with TABS[7]:
-    st.markdown("### Evidence review")
-    st.caption("Fine-tune node probabilities. Values auto-set from Case Profile and Gladue/SCE tabs.")
-    st.markdown(dobar(P[20]),unsafe_allow_html=True)
-    ev_nodes=[n for n in NODE_META if NODE_META[n]["ev"]]
-    rn=[n for n in ev_nodes if NODE_META[n]["type"]=="risk"]
-    dn=[n for n in ev_nodes if NODE_META[n]["type"]!="risk"]
-    man=dict(st.session_state.manual_ev)
-    c1,c2=st.columns(2)
-    def slgrp(nodes,cont,label):
-        with cont:
-            st.markdown(f"##### {label}")
+    # ════════════════════════════════════════════════════════════════════════
+    # Risk & Distortions tab — visual rebuild (Mark 8)
+    # All logic preserved: ev_nodes filter, manual_ev override detection,
+    # reset-to-priors button. Widget keys preserved (ev_{nid}, rst).
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Tab title + caption ───────────────────────────────────────────────
+    st.markdown(
+        "<h2 style='font-family:Fraunces,Georgia,serif;font-size:1.7rem;"
+        "font-weight:500;letter-spacing:-0.005em;margin:0 0 4px 0'>"
+        "Risk &amp; distortions</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.92rem;color:#707070;margin-bottom:18px;line-height:1.6;"
+        "max-width:880px'>"
+        "Per-node manual override surface. Each slider sets P(High) for an "
+        "evidence-bearing node directly, bypassing the upstream computations "
+        "from Profile, Gladue, SCE, Criminal Record, and Documents. Use "
+        "sparingly and only with case-specific evidence that warrants "
+        "departure from the network's automatic calculations."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Scope disclaimer (override register explanation) ──────────────────
+    st.markdown(
+        "<div style='background:#E8F0FA;border:1px solid #C7D3E5;"
+        "border-left:3px solid #185FA5;border-radius:6px;padding:12px 18px;"
+        "margin-bottom:22px;font-size:0.86rem;color:#3A3A3A;line-height:1.55;"
+        "max-width:880px'>"
+        "<strong style='color:#185FA5;font-weight:600'>Override surface.</strong> "
+        "Adjustments here override values computed from other tabs. The network "
+        "preserves the original computed value alongside the manual override. "
+        "Document the reasoning for any override in the Report tab — the audit "
+        "log captures both the original computed value and your adjustment. "
+        "Reset all overrides to defaults below."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Compute override status from current state ────────────────────────
+    ev_nodes = [n for n in NODE_META if NODE_META[n]["ev"]]
+    n_overrides = sum(
+        1 for nid in ev_nodes
+        if abs(P.get(nid, .5) - st.session_state.profile_ev.get(nid, .5)) > .015
+        and nid in st.session_state.manual_ev
+    )
+    n_total = len(ev_nodes)
+
+    # ── Override status + reset action ────────────────────────────────────
+    osc1, osc2 = st.columns([3, 1])
+    with osc1:
+        _override_color = "#BA7517" if n_overrides > 0 else "#3B6D11"
+        st.markdown(
+            f"<div style='background:#FFFFFF;border:1px solid #E0DDD6;"
+            f"border-radius:8px;padding:14px 20px;margin-bottom:20px'>"
+            f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.1rem;"
+            f"font-weight:500;color:#1A1A1A;margin-bottom:4px'>"
+            f"<span style='font-family:JetBrains Mono,monospace;font-weight:600;"
+            f"color:{_override_color}'>{n_overrides}</span> of "
+            f"<span style='font-family:JetBrains Mono,monospace;font-weight:600;"
+            f"color:#1A1A1A'>{n_total}</span> nodes manually overridden</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.84rem;color:#707070;line-height:1.5'>"
+            f"Manual overrides represent your judgment that the case file "
+            f"warrants a departure from the value computed from Profile / "
+            f"Gladue / SCE inputs."
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Build the slider rows by node type ────────────────────────────────
+    # Group evidence-bearing nodes by NODE_META type
+    nodes_by_type = {}
+    for nid in ev_nodes:
+        t = NODE_META[nid]["type"]
+        nodes_by_type.setdefault(t, []).append(nid)
+
+    # Section metadata for each node type
+    _type_meta = {
+        "risk":       ("#A32D2D", "Risk factor nodes",         "Pattern-of-violence and clinical risk indicators."),
+        "distortion": ("#185FA5", "Systemic distortion nodes", "Procedural and structural distortions affecting the record."),
+        "mitigation": ("#3B6D11", "Mitigation",                "Background factors weighing against designation."),
+        "dual":       ("#534AB7", "Dual (risk + mitigation)",  "Factors that elevate risk if untreated, mitigate if accommodated."),
+        "special":    ("#0F6E56", "Causal detector",           "Specialised detector nodes — pattern-recognition rather than direct evidence."),
+    }
+    # Render order: risk first, then distortion (the largest two), then mitigation/dual/special
+    _render_order = ["risk", "distortion", "mitigation", "dual", "special"]
+
+    man = dict(st.session_state.manual_ev)
+
+    # Render the section cards in 2 columns
+    rsc_c1, rsc_c2 = st.columns(2)
+
+    def _render_section(nodes, type_key, container):
+        """Render a section card with coloured stripe + native sliders inside."""
+        if not nodes:
+            return
+        stripe_col, title, subtitle = _type_meta.get(type_key, ("#707070", type_key, ""))
+        # Build the node-tag string
+        nodes_tag = " · ".join(f"N{n}" for n in nodes)
+        # Count overrides in this section
+        n_section_overrides = sum(
+            1 for nid in nodes
+            if abs(P.get(nid, .5) - st.session_state.profile_ev.get(nid, .5)) > .015
+            and nid in st.session_state.manual_ev
+        )
+        with container:
+            st.markdown(
+                f"<div style='background:#FFFFFF;border:1px solid #E0DDD6;"
+                f"border-radius:8px;overflow:hidden;margin-bottom:18px'>"
+                f"<div style='display:grid;grid-template-columns:4px 1fr auto;"
+                f"gap:14px;align-items:center;padding:12px 16px;"
+                f"background:#FBFAF7;border-bottom:1px solid #EFEDE7'>"
+                f"<div style='width:4px;height:28px;border-radius:2px;align-self:center;"
+                f"background:{stripe_col}'></div>"
+                f"<div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:0.98rem;"
+                f"font-weight:500;color:#1A1A1A'>{title}"
+                f"<span style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+                f"color:#9E9E9E;margin-left:6px;font-weight:500'>{nodes_tag}</span></div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#707070;margin-top:2px'>{subtitle}</div>"
+                f"</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+                f"padding:2px 8px;border-radius:9px;"
+                f"background:{'#FAEEDA' if n_section_overrides else '#FFFFFF'};"
+                f"color:{'#BA7517' if n_section_overrides else '#707070'};"
+                f"border:1px solid {'#E5CC95' if n_section_overrides else '#E0DDD6'};"
+                f"font-weight:500'>"
+                f"{n_section_overrides} override{'s' if n_section_overrides != 1 else ''}</div>"
+                f"</div>"
+                f"<div style='padding:12px 16px 6px 16px'>",
+                unsafe_allow_html=True,
+            )
+
+            # Native sliders inside the card
             for nid in nodes:
-                m=NODE_META[nid];col=TC[m["type"]];cur=P.get(nid,.5)
-                v=st.slider(f"N{nid} — {m['short']}",0.0,1.0,float(cur),.01,key=f"ev_{nid}",format="%.2f",label_visibility="visible")
-                st.markdown(f"<div style='font-size:.72rem;color:{col};margin-top:-12px;margin-bottom:6px'>P(High) = {v*100:.0f}%</div>",unsafe_allow_html=True)
-                if abs(v-st.session_state.profile_ev.get(nid,.5))>.015: man[nid]=v
-    slgrp(rn,c1,"Risk factor nodes"); slgrp(dn,c2,"Systemic distortion nodes")
-    st.session_state.manual_ev=man
-    if st.button("Reset all to priors",key="rst"):
-        for k in ["profile_ev","manual_ev","doc_adj"]: st.session_state[k]={}
-        st.session_state.gladue_checked=set();st.session_state.sce_checked=set()
-        st.rerun()
+                m = NODE_META[nid]
+                col = TC[m["type"]]
+                cur = P.get(nid, .5)
+                upstream = st.session_state.profile_ev.get(nid, .5)
+                is_overridden = (abs(cur - upstream) > .015 and nid in st.session_state.manual_ev)
+
+                v = st.slider(
+                    f"N{nid} — {m['short']}",
+                    0.0, 1.0, float(cur), .01,
+                    key=f"ev_{nid}", format="%.2f",
+                    label_visibility="visible"
+                )
+
+                # Inline value/state display below slider
+                if is_overridden:
+                    delta = v - upstream
+                    delta_str = f"+{delta:.2f}" if delta > 0 else f"{delta:.2f}"
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:space-between;"
+                        f"align-items:baseline;margin-top:-12px;margin-bottom:8px;"
+                        f"font-size:0.74rem'>"
+                        f"<span style='color:#BA7517;font-family:Fraunces,serif;"
+                        f"font-style:italic'>"
+                        f"<strong style='font-style:normal;font-family:JetBrains Mono,monospace;"
+                        f"font-size:0.66rem;text-transform:uppercase;letter-spacing:0.06em;"
+                        f"background:#FAEEDA;color:#BA7517;border:1px solid #E5CC95;"
+                        f"padding:1px 6px;border-radius:8px;margin-right:6px'>override</strong>"
+                        f"upstream: {upstream*100:.0f}%</span>"
+                        f"<span style='font-family:JetBrains Mono,monospace;"
+                        f"color:{col};font-weight:600'>P(High) = {v*100:.0f}% · "
+                        f"<span style='color:#BA7517'>{delta_str}</span></span></div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:space-between;"
+                        f"align-items:baseline;margin-top:-12px;margin-bottom:8px;"
+                        f"font-size:0.74rem'>"
+                        f"<span style='color:#707070;font-family:Fraunces,serif;"
+                        f"font-style:italic'>upstream value</span>"
+                        f"<span style='font-family:JetBrains Mono,monospace;"
+                        f"color:{col};font-weight:500'>P(High) = {v*100:.0f}%</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # Preserved logic: detect manual overrides
+                if abs(v - st.session_state.profile_ev.get(nid, .5)) > .015:
+                    man[nid] = v
+
+            st.markdown("</div></div>", unsafe_allow_html=True)
+
+    # Render order — distribute sections across 2 columns
+    # Risk + Mitigation in left column, Distortion + Dual + Special in right
+    _left_types  = ["risk", "mitigation"]
+    _right_types = ["distortion", "dual", "special"]
+
+    for tk in _left_types:
+        _render_section(nodes_by_type.get(tk, []), tk, rsc_c1)
+    for tk in _right_types:
+        _render_section(nodes_by_type.get(tk, []), tk, rsc_c2)
+
+    # Save manual_ev state
+    st.session_state.manual_ev = man
+
+    # ── Reset action ──────────────────────────────────────────────────────
+    rsc1, rsc2, rsc3 = st.columns([1, 1, 2])
+    with rsc1:
+        if st.button("Reset all to priors", key="rst"):
+            for k in ["profile_ev", "manual_ev", "doc_adj"]:
+                st.session_state[k] = {}
+            st.session_state.gladue_checked = set()
+            st.session_state.sce_checked = set()
+            st.rerun()
+
+    # ── Run inference + slim live-result strip ────────────────────────────
     run_inf()
+    P = st.session_state.posteriors
+    bl_rd, _bc_rd, _bg_rd = rb(P[20])
+    _band_text_rd = {
+        "Low":      f"belief largely resolved · {n_overrides} manual override(s)",
+        "Moderate": f"belief partially resolved · {n_overrides} override(s)",
+        "Elevated": f"belief shifted · {n_overrides} override(s)",
+        "High":     f"strong indication · {n_overrides} override(s)",
+    }.get(bl_rd, bl_rd)
+    st.markdown(
+        f"<div style='display:grid;grid-template-columns:1fr auto;"
+        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+        f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
+        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+        f"Node 20 · DO designation risk"
+        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+        f"</div>"
+        f"<div style='font-family:Fraunces,serif;font-style:italic;"
+        f"font-size:0.86rem;color:#2F5C2A'>{bl_rd} — {_band_text_rd}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── T6: Inference ─────────────────────────────────────────────────────────────
 with TABS[8]:
