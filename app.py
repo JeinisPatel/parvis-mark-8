@@ -1345,23 +1345,243 @@ with TABS[2]:
 
 # ── T3: Gladue ────────────────────────────────────────────────────────────────
 with TABS[5]:
-    st.markdown("### Gladue factors")
-    st.caption("*R v Gladue* [1999] · *R v Ipeelee* [2012] · No causation requirement")
-    st.markdown(dobar(P[20]),unsafe_allow_html=True)
-    secs={}
-    for f in GF: secs.setdefault(f["sec"],[]).append(f)
-    cg=set()
-    c1,c2=st.columns(2)
-    for sec,facs in secs.items():
-        t=c1 if facs[0]["col"]==1 else c2
-        with t:
-            st.markdown(f"<div class='sh'>{sec}</div>",unsafe_allow_html=True)
+    # ════════════════════════════════════════════════════════════════════════
+    # Gladue tab — checklist-of-factors layout (Mark 8 redesign)
+    # All widget keys (gl_{factor_id}) preserved via the GF iteration.
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Tab title + caption ───────────────────────────────────────────────
+    st.markdown(
+        "<h2 style='font-family:Fraunces,Georgia,serif;font-size:1.7rem;"
+        "font-weight:500;letter-spacing:-0.005em;margin:0 0 4px 0'>"
+        "Gladue factors</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.92rem;color:#707070;margin-bottom:18px;line-height:1.6;"
+        "max-width:880px'>"
+        "Eighteen factor categories drawn from the Gladue / Ipeelee jurisprudence, "
+        "organised into the seven thematic areas a Gladue report is expected "
+        "to address. Check each factor for which the case file contains "
+        "substantive evidence — not whether the offender belongs to a "
+        "population to which the factor commonly applies."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Doctrinal anchor strip ────────────────────────────────────────────
+    st.markdown(
+        "<div style='background:#EAF3DE;border:1px solid #B8CDA8;"
+        "border-left:3px solid #3B6D11;border-radius:6px;padding:10px 18px;"
+        "margin-bottom:22px;font-size:0.84rem;color:#3A3A3A;line-height:1.55;"
+        "max-width:880px'>"
+        "<strong style='color:#3B6D11;font-weight:600'>Binding authorities.</strong> "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>R v Gladue</em> [1999] 1 SCR 688 · "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>R v Ipeelee</em> [2012] 1 SCR 433 · "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>R v Anderson</em> [2014] 2 SCR 167. "
+        "No causation requirement — discernible nexus per "
+        "<em style='font-family:Fraunces,serif;font-style:italic;color:#1A1A1A'>Ipeelee</em> §83 "
+        "is sufficient to engage the framework."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Build factor groupings + run checkboxes ────────────────────────────
+    # Group factors by section, preserving original col-assignment
+    secs = {}
+    for f in GF:
+        secs.setdefault(f["sec"], []).append(f)
+
+    # ── Pre-render: collect checkbox state in a hidden two-column wrapper ──
+    # We use Streamlit's native columns + checkboxes (preserves keys), but
+    # wrap each section in styled markdown shells around the native widgets.
+    cg = set()
+    c1, c2 = st.columns(2)
+
+    # Section type → stripe colour map.
+    # Five mitigation-green sections, one mitigation-green (Cultural), one
+    # distortion-blue (Systemic justice — feeds N12/N14 distortion correction).
+    _section_color = {
+        "Intergenerational trauma":   "#3B6D11",   # mitigation
+        "Cultural disconnection":     "#3B6D11",   # mitigation
+        "Childhood & family":         "#3B6D11",   # mitigation
+        "Socioeconomic":              "#3B6D11",   # mitigation
+        "Substance & mental health":  "#3B6D11",   # mitigation
+        "Systemic justice":           "#185FA5",   # distortion
+    }
+    # Subtitle helper — small descriptive line under each section title
+    _section_subtitle = {
+        "Intergenerational trauma":   "Direct and inherited trauma — residential schools, Sixties Scoop, displacement.",
+        "Cultural disconnection":     "Severance from language, identity, and ceremonial practice.",
+        "Childhood & family":         "Family violence and care-system involvement during formative years.",
+        "Socioeconomic":              "Poverty, housing, employment, and educational deprivation.",
+        "Substance & mental health":  "Trauma-linked substance use and untreated mental health conditions.",
+        "Systemic justice":           "Over-policing and prior procedural failures — feed distortion-corrections.",
+    }
+    # Aggregate node-tag for each section
+    _section_nodes = {
+        "Intergenerational trauma":   "→ N10",
+        "Cultural disconnection":     "→ N11 · N12",
+        "Childhood & family":         "→ N10",
+        "Socioeconomic":              "→ N10 · N18",
+        "Substance & mental health":  "→ N10 · N18",
+        "Systemic justice":           "→ N12 · N14",
+    }
+
+    def _gladue_section_open(stripe_color, title, subtitle, node_tags, count_str, has_checked):
+        """Render the opening div of a section card, before native checkboxes."""
+        count_bg = "#EAF3DE" if has_checked else "#FFFFFF"
+        count_color = "#3B6D11" if has_checked else "#707070"
+        count_border = "#B8CDA8" if has_checked else "#E0DDD6"
+        return (
+            f"<div style='background:#FFFFFF;border:1px solid #E0DDD6;"
+            f"border-radius:8px;overflow:hidden;margin-bottom:18px'>"
+            f"<div style='display:grid;grid-template-columns:4px 1fr auto;"
+            f"gap:14px;align-items:center;padding:12px 16px;"
+            f"background:#FBFAF7;border-bottom:1px solid #EFEDE7'>"
+            f"<div style='width:4px;height:28px;border-radius:2px;align-self:center;"
+            f"background:{stripe_color}'></div>"
+            f"<div style='font-family:Fraunces,Georgia,serif;font-size:0.98rem;"
+            f"font-weight:500;color:#1A1A1A'>{title}"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            f"color:#9E9E9E;margin-left:6px;font-weight:500'>{node_tags}</span></div>"
+            f"<div style='font-family:JetBrains Mono,monospace;font-size:0.72rem;"
+            f"padding:2px 8px;border-radius:9px;background:{count_bg};"
+            f"color:{count_color};border:1px solid {count_border};font-weight:500'>"
+            f"{count_str}</div>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.78rem;color:#707070;padding:8px 16px 4px 16px;"
+            f"line-height:1.5'>{subtitle}</div>"
+            f"<div style='padding:4px 12px 8px 12px'>"
+        )
+
+    # Track per-section render order matching original col= assignment
+    # Original: col=1 → c1 left column, col=2 → c2 right column
+    _ordered_sections = []
+    _seen = set()
+    for f in GF:
+        if f["sec"] not in _seen:
+            _seen.add(f["sec"])
+            _ordered_sections.append((f["sec"], f["col"]))
+
+    for sec, col in _ordered_sections:
+        facs = secs[sec]
+        target_col = c1 if col == 1 else c2
+
+        # Pre-compute count
+        n_checked = sum(1 for f in facs if f["id"] in st.session_state.gladue_checked)
+        n_total = len(facs)
+        count_str = f"{n_checked} of {n_total}"
+        has_checked = n_checked > 0
+
+        with target_col:
+            # Open the section card (HTML)
+            st.markdown(
+                _gladue_section_open(
+                    _section_color.get(sec, "#3B6D11"),
+                    sec,
+                    _section_subtitle.get(sec, ""),
+                    _section_nodes.get(sec, ""),
+                    count_str,
+                    has_checked,
+                ),
+                unsafe_allow_html=True,
+            )
+
+            # Native Streamlit checkboxes — preserves keys, state, behaviour.
+            # The label includes node weight so the user sees contribution inline.
             for f in facs:
-                if st.checkbox(f"{f['l']} · N{f['n']} (+{f['w']*100:.0f}%)",key=f"gl_{f['id']}",
-                               value=f["id"] in st.session_state.gladue_checked): cg.add(f["id"])
-    st.session_state.gladue_checked=cg
-    run_inf();P=st.session_state.posteriors
-    st.success(f"Node 20: **{P[20]*100:.1f}%** · {rb(P[20])[0]}")
+                lbl = f"{f['l']} · N{f['n']} (+{f['w']*100:.0f}%)"
+                if st.checkbox(
+                    lbl,
+                    key=f"gl_{f['id']}",
+                    value=f["id"] in st.session_state.gladue_checked,
+                ):
+                    cg.add(f["id"])
+
+            # Close the section card
+            st.markdown("</div></div>", unsafe_allow_html=True)
+
+    # Update session state with current checked set
+    st.session_state.gladue_checked = cg
+    run_inf()
+    P = st.session_state.posteriors
+    bl, _bc, _bg = rb(P[20])
+
+    # ── Coverage summary panel ────────────────────────────────────────────
+    n_total_factors = len(GF)
+    n_checked_factors = len(cg)
+    n_total_sections = len(_ordered_sections)
+    n_active_sections = sum(
+        1 for sec, _col in _ordered_sections
+        if any(f["id"] in cg for f in secs[sec])
+    )
+
+    st.markdown("<div style='margin:24px 0 12px 0'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='background:#FBFAF7;border:1px solid #E0DDD6;"
+        f"border-radius:8px;padding:18px 22px;margin-bottom:20px'>"
+        f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.15rem;"
+        f"font-weight:500;color:#1A1A1A;margin-bottom:6px'>"
+        f"<span style='font-family:JetBrains Mono,monospace;font-weight:600;"
+        f"color:#3B6D11'>{n_checked_factors}</span> of "
+        f"<span style='font-family:JetBrains Mono,monospace;font-weight:600;"
+        f"color:#3B6D11'>{n_total_factors}</span> factors checked across "
+        f"<span style='font-family:JetBrains Mono,monospace;font-weight:600;"
+        f"color:#3B6D11'>{n_active_sections}</span> of "
+        f"<span style='font-family:JetBrains Mono,monospace;font-weight:600;"
+        f"color:#3B6D11'>{n_total_sections}</span> sections</div>"
+        f"<div style='font-family:Fraunces,serif;font-style:italic;"
+        f"font-size:0.86rem;color:#707070;line-height:1.5'>"
+        f"The <em style='color:#1A1A1A'>Anderson</em> [2014] §22 obligation is to address all "
+        f"reasonably available factors in a Gladue report. Coverage above 6 "
+        f"factors with breadth across multiple thematic areas is a typical "
+        f"threshold for a well-supported analysis."
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Slim live-result strip ────────────────────────────────────────────
+    _band_text = {
+        "Low": f"belief largely resolved · {n_checked_factors} Gladue factor(s) active",
+        "Moderate": f"belief partially resolved · {n_checked_factors} factor(s)",
+        "Elevated": f"belief shifted · {n_checked_factors} factor(s)",
+        "High": f"strong indication · {n_checked_factors} factor(s)",
+    }.get(bl, bl)
+    st.markdown(
+        f"<div style='display:grid;grid-template-columns:1fr auto;"
+        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+        f"border-radius:8px;padding:11px 18px;margin-bottom:24px'>"
+        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+        f"Node 20 · DO designation risk"
+        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+        f"</div>"
+        f"<div style='font-family:Fraunces,serif;font-style:italic;"
+        f"font-size:0.86rem;color:#2F5C2A'>{bl} — {_band_text}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Ipeelee §60 reminder at bottom ────────────────────────────────────
+    st.markdown(
+        "<div style='padding:14px 20px;background:#FBFAF7;border:1px solid #E0DDD6;"
+        "border-radius:8px;font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.84rem;color:#707070;line-height:1.55;max-width:880px'>"
+        "<strong style='color:#1A1A1A;font-style:normal'>Reminder — Ipeelee §60.</strong> "
+        "Counsel and the court should consider the unique systemic and "
+        "background factors which may have played a role in bringing the "
+        "offender before the court, even where they fall outside the "
+        "categories tabulated above. The list is illustrative, not "
+        "exhaustive — case-specific factors that do not map cleanly to a "
+        "checkbox here may still be entered in <em style='color:#3A3A3A'>Intake (Chat)</em> "
+        "for narrative inclusion in the report."
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── T4: Morris/Ellis SCE ──────────────────────────────────────────────────────
 with TABS[6]:
