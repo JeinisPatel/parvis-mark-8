@@ -970,9 +970,30 @@ with TABS[1]:
 
 # ── T2: Case profile ──────────────────────────────────────────────────────────
 with TABS[2]:
-    st.markdown("### Case profile")
-    st.caption("Each field maps to network nodes and drives Variable Elimination.")
-    # ── Case identifier (Mark 8) — surfaces in Summary tab headline ──
+    # ════════════════════════════════════════════════════════════════════════
+    # Profile tab — workbench-but-quieter input language (Mark 8 redesign)
+    # All widget keys preserved; pev[N] math unchanged.
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Tab title + caption ───────────────────────────────────────────────
+    st.markdown(
+        "<h2 style='font-family:Fraunces,Georgia,serif;font-size:1.7rem;"
+        "font-weight:500;letter-spacing:-0.005em;margin:0 0 4px 0'>"
+        "Case profile</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.92rem;color:#707070;margin-bottom:22px;line-height:1.6;"
+        "max-width:880px'>"
+        "Each field maps to one or more nodes in the network. Adjustments "
+        "here drive Variable Elimination immediately; the live posterior "
+        "strip below the form reflects the current state."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Case identifier row ───────────────────────────────────────────────
     _ci_col1, _ci_col2 = st.columns([2, 1])
     with _ci_col1:
         st.text_input("Case identifier", key="case_id",
@@ -980,47 +1001,299 @@ with TABS[2]:
     with _ci_col2:
         st.text_input("Jurisdiction / location", key="case_jur",
                       placeholder="e.g. Calgary · Alberta")
-    st.markdown(dobar(P[20]),unsafe_allow_html=True)
-    c1,c2=st.columns(2);pev={}
-    with c1:
-        st.markdown("##### Offender characteristics")
-        age=st.slider("Age at sentencing",18,80,35,key="age")
-        st.caption(f"Node 15 — age {age}: {'strong burnout attenuation' if age>=55 else 'moderate' if age>=45 else 'minimal'}")
-        identity=st.selectbox("Identity background",["Not recorded / unknown",
-            "Indigenous — s.718.2(e) + Gladue applies","Black — Morris IRCA framework",
-            "Other racialized — Morris framework","Non-racialized, socially disadvantaged — Ellis",
-            "No identified systemic disadvantage"],key="id_bg")
-        pclr=st.slider("PCL-R score",0,40,20,key="pclr")
-        st.caption(f"N3: {'High ≥30 — Ewert/Larsen caveat APPLIES' if pclr>=30 else 'Moderate' if pclr>=20 else 'Low'}")
-        s99=st.slider("Static-99R score",0,12,3,key="s99")
-        st.caption(f"N4: {'High ≥6' if s99>=6 else 'Moderate' if s99>=4 else 'Low'} — Ewert validation caveat")
-        violence=st.selectbox("Serious violence history",["None","Minor/historical","Moderate","Serious","Established pattern"],key="viol")
-        fasd=st.selectbox("FASD diagnosis",["None / not assessed","Suspected, undiagnosed","Confirmed diagnosis"],key="fasd")
-        st.markdown("##### Dynamic risk · Node 18")
-        sub=st.selectbox("Substance use",["None / in remission","Low","Moderate","High — dependency"],key="sub")
-        peers=st.selectbox("Antisocial peer associations",["None identified","Some — limited","Strong — primary network"],key="peers")
-        stab=st.selectbox("Employment / housing stability",["Stable","Marginal","Unstable / homeless"],key="stab")
-    with c2:
-        st.markdown("##### Procedural integrity · Distortion nodes")
-        det=st.slider("Pre-trial detention (days)",0,730,60,key="det")
-        st.caption(f"N7: {'HIGH — coercive plea cascade risk' if det>90 else 'Moderate' if det>30 else 'Low'} ({det} days)")
-        counsel=st.selectbox("Quality of defence counsel",["Adequate","Marginal",
-            "Inadequate — no cultural investigation","Ineffective — constitutional breach"],key="counsel")
-        gr=st.selectbox("Gladue / SCE report commissioned",["Yes — full report before court",
-            "Partial / summary only","No report commissioned","Report commissioned, disregarded"],key="gr")
-        tools=st.selectbox("Risk tools applied",["Culturally validated only","Mix — partially qualified",
-            "Standard, no cultural qualification","No actuarial tools"],key="tools")
-        pol=st.selectbox("Over-policing indicator",["No evidence","Some — marginal",
-            "Strong — documented over-surveillance"],key="pol")
-        prov=st.selectbox("Province of prosecution",["Low DO designation rate","Medium rate",
-            "High DO designation rate"],key="prov")
-        st.markdown("##### Rehabilitative context · Nodes 11, 19")
-        prog=st.selectbox("Indigenous / cultural programming",["Yes — full culturally grounded",
-            "Limited availability","No culturally appropriate programming"],key="prog")
-        st.caption("Natomagan 2022 ABCA 48: absence is systemic failure, not offender characteristic")
-        rehab=st.selectbox("Rehabilitation engagement",["Strong — consistent","Moderate","Minimal",
-            "None — apparent refusal","Anomalously positive (gaming risk)"],key="rehab")
 
+    # Visual separator below case-id
+    st.markdown(
+        "<div style='border-bottom:1px solid #EFEDE7;margin:12px 0 26px 0'></div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Two-column body ───────────────────────────────────────────────────
+    pev = {}
+    c1, c2 = st.columns(2)
+
+    # Severity-word colour helper for doctrinal captions
+    def _sev_caption(severity_word, severity_color, body_text, nid_tag=None):
+        nid_html = (f"<span style='font-family:JetBrains Mono,monospace;"
+                    f"font-size:0.7rem;color:#9E9E9E;margin-right:6px'>{nid_tag}</span>"
+                    if nid_tag else "")
+        return (
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.78rem;color:#707070;margin-top:-4px;margin-bottom:10px;"
+            f"line-height:1.5'>"
+            f"{nid_html}"
+            f"<span style='color:{severity_color};font-style:normal;font-weight:500'>"
+            f"{severity_word}</span> — {body_text}"
+            f"</div>"
+        )
+
+    # Section-head helper — emits a coloured stripe + title block
+    def _section_head(stripe_color, title, subtitle, node_tags):
+        return (
+            f"<div style='display:grid;grid-template-columns:8px 1fr;gap:14px;"
+            f"align-items:baseline;margin-bottom:14px;padding-bottom:8px;"
+            f"border-bottom:1px solid #EFEDE7'>"
+            f"<div style='width:4px;height:22px;border-radius:2px;align-self:center;"
+            f"background:{stripe_color}'></div>"
+            f"<div>"
+            f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.05rem;"
+            f"font-weight:500;color:#1A1A1A;letter-spacing:-0.005em'>{title}"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:0.72rem;"
+            f"color:#707070;margin-left:8px;letter-spacing:0;font-weight:500'>"
+            f"{node_tags}</span></div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.82rem;color:#707070;margin-top:2px;line-height:1.5'>"
+            f"{subtitle}</div>"
+            f"</div></div>"
+        )
+
+    with c1:
+        # ─── Section: Offender characteristics (risk stripe) ───────────────
+        st.markdown(
+            _section_head(
+                "#A32D2D",
+                "Offender characteristics",
+                "Demographic and clinical features mapped to risk and burnout nodes.",
+                "N3 · N4 · N9 · N15"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        age = st.slider("Age at sentencing", 18, 80, 35, key="age")
+        # Doctrinal caption — severity word breaks out in mitigation green/warm/risk
+        if age >= 55:
+            sev_word, sev_col, sev_body = "Strong", "#3B6D11", f"burnout attenuation active ({age} years). Temporal distortion node weighted high."
+        elif age >= 45:
+            sev_word, sev_col, sev_body = "Moderate", "#BA7517", f"partial burnout attenuation ({age} years)."
+        else:
+            sev_word, sev_col, sev_body = "Minimal", "#707070", f"burnout attenuation — temporal distortion node weighted at default ({age} years)."
+        st.markdown(_sev_caption(sev_word, sev_col, sev_body, "N15"),
+                    unsafe_allow_html=True)
+
+        identity = st.selectbox(
+            "Identity background",
+            ["Not recorded / unknown",
+             "Indigenous — s.718.2(e) + Gladue applies",
+             "Black — Morris IRCA framework",
+             "Other racialized — Morris framework",
+             "Non-racialized, socially disadvantaged — Ellis",
+             "No identified systemic disadvantage"],
+            key="id_bg")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>"
+            "framework gate</div>",
+            unsafe_allow_html=True,
+        )
+
+        pclr = st.slider("PCL-R score", 0, 40, 20, key="pclr")
+        if pclr >= 30:
+            sev_word, sev_col, sev_body = "High ≥30", "#A32D2D", "<em>Ewert/Larsen</em> adversarial-allegiance caveat APPLIES."
+        elif pclr >= 20:
+            sev_word, sev_col, sev_body = "Moderate", "#BA7517", "<em>Ewert/Larsen</em> caveat partially applies."
+        else:
+            sev_word, sev_col, sev_body = "Low", "#3B6D11", "below threshold for adversarial-allegiance concern."
+        st.markdown(_sev_caption(sev_word, sev_col, sev_body, "N3"),
+                    unsafe_allow_html=True)
+
+        s99 = st.slider("Static-99R score", 0, 12, 3, key="s99")
+        if s99 >= 6:
+            sev_word, sev_col, sev_body = "High ≥6", "#A32D2D", "<em>Ewert</em> validation caveat applies independently of score."
+        elif s99 >= 4:
+            sev_word, sev_col, sev_body = "Moderate", "#BA7517", "<em>Ewert</em> validation caveat applies."
+        else:
+            sev_word, sev_col, sev_body = "Low", "#3B6D11", "<em>Ewert</em> validation caveat applies independently of score."
+        st.markdown(_sev_caption(sev_word, sev_col, sev_body, "N4"),
+                    unsafe_allow_html=True)
+
+        violence = st.selectbox(
+            "Serious violence history",
+            ["None", "Minor/historical", "Moderate", "Serious", "Established pattern"],
+            key="viol")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N2</div>",
+            unsafe_allow_html=True,
+        )
+
+        fasd = st.selectbox(
+            "FASD diagnosis",
+            ["None / not assessed", "Suspected, undiagnosed", "Confirmed diagnosis"],
+            key="fasd")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:18px;text-align:right'>N9</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ─── Section: Dynamic risk (risk stripe) ───────────────────────────
+        st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            _section_head(
+                "#A32D2D",
+                "Dynamic risk",
+                "Substance, peer, and stability features aggregated into the dynamic-risk composite.",
+                "N18"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        sub = st.selectbox(
+            "Substance use",
+            ["None / in remission", "Low", "Moderate", "High — dependency"],
+            key="sub")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>"
+            "→ N18</div>",
+            unsafe_allow_html=True,
+        )
+
+        peers = st.selectbox(
+            "Antisocial peer associations",
+            ["None identified", "Some — limited", "Strong — primary network"],
+            key="peers")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>"
+            "→ N18</div>",
+            unsafe_allow_html=True,
+        )
+
+        stab = st.selectbox(
+            "Employment / housing stability",
+            ["Stable", "Marginal", "Unstable / homeless"],
+            key="stab")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>"
+            "→ N18</div>",
+            unsafe_allow_html=True,
+        )
+
+    with c2:
+        # ─── Section: Procedural integrity (distortion stripe) ─────────────
+        st.markdown(
+            _section_head(
+                "#185FA5",
+                "Procedural integrity",
+                "Distortion-typed nodes — encode whether the record was generated under coercion, contamination, or systemic bias.",
+                "N5 · N6 · N7 · N12 · N14 · N16"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        det = st.slider("Pre-trial detention (days)", 0, 730, 60, key="det")
+        if det > 180:
+            sev_word, sev_col, sev_body = "Severe", "#A32D2D", f"<em>Antic</em> [2017] coercive-plea cascade risk acute ({det} days)."
+        elif det > 90:
+            sev_word, sev_col, sev_body = "High", "#A32D2D", f"<em>Antic</em> [2017] coercive-plea cascade risk active ({det} days)."
+        elif det > 30:
+            sev_word, sev_col, sev_body = "Moderate", "#BA7517", f"<em>Antic</em> [2017] coercive-plea cascade risk emerging ({det} days)."
+        else:
+            sev_word, sev_col, sev_body = "Low", "#3B6D11", f"below threshold for coercive-plea concern ({det} days)."
+        st.markdown(_sev_caption(sev_word, sev_col, sev_body, "N7"),
+                    unsafe_allow_html=True)
+
+        counsel = st.selectbox(
+            "Quality of defence counsel",
+            ["Adequate", "Marginal",
+             "Inadequate — no cultural investigation",
+             "Ineffective — constitutional breach"],
+            key="counsel")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N6</div>",
+            unsafe_allow_html=True,
+        )
+
+        gr = st.selectbox(
+            "Gladue / SCE report commissioned",
+            ["Yes — full report before court",
+             "Partial / summary only",
+             "No report commissioned",
+             "Report commissioned, disregarded"],
+            key="gr")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N12</div>",
+            unsafe_allow_html=True,
+        )
+
+        tools = st.selectbox(
+            "Risk tools applied",
+            ["Culturally validated only", "Mix — partially qualified",
+             "Standard, no cultural qualification", "No actuarial tools"],
+            key="tools")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N5</div>",
+            unsafe_allow_html=True,
+        )
+
+        pol = st.selectbox(
+            "Over-policing indicator",
+            ["No evidence", "Some — marginal",
+             "Strong — documented over-surveillance"],
+            key="pol")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N14</div>",
+            unsafe_allow_html=True,
+        )
+
+        prov = st.selectbox(
+            "Province of prosecution",
+            ["Low DO designation rate", "Medium rate", "High DO designation rate"],
+            key="prov")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:18px;text-align:right'>N16</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ─── Section: Rehabilitative context (mitigation stripe) ───────────
+        st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            _section_head(
+                "#3B6D11",
+                "Rehabilitative context",
+                "Cultural programming availability and engagement — Natomagan §48 frames absence as systemic, not individual.",
+                "N11 · N19"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        prog = st.selectbox(
+            "Indigenous / cultural programming",
+            ["Yes — full culturally grounded",
+             "Limited availability",
+             "No culturally appropriate programming"],
+            key="prog")
+        st.markdown(
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.78rem;color:#707070;margin-top:-4px;margin-bottom:10px;"
+            "line-height:1.5'>"
+            "<span style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-right:6px'>N11</span>"
+            "Per <em>Natomagan</em> 2022 ABCA 48 — absence is systemic failure, "
+            "not an offender characteristic."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        rehab = st.selectbox(
+            "Rehabilitation engagement",
+            ["Strong — consistent", "Moderate", "Minimal",
+             "None — apparent refusal", "Anomalously positive (gaming risk)"],
+            key="rehab")
+        st.markdown(
+            "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N19</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Posterior calculation (preserved byte-for-byte) ────────────────────
     ir=identity in ["Indigenous — s.718.2(e) + Gladue applies","Black — Morris IRCA framework","Other racialized — Morris framework"]
     pev[2]={"None":.08,"Minor/historical":.25,"Moderate":.50,"Serious":.78,"Established pattern":.90}[violence]
     pev[3]=.82 if pclr>=30 else .55 if pclr>=20 else .30 if pclr>=10 else .12
@@ -1045,7 +1318,30 @@ with TABS[2]:
     st.session_state.profile_ev=pev
     run_inf();P=st.session_state.posteriors
     bl2,bc2,_=rb(P[20])
-    st.success(f"Node 20 — DO designation risk: **{P[20]*100:.1f}%** · {bl2}")
+
+    # ── Slim live-result strip — replaces st.success() ────────────────────
+    st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+    _band_text = {
+        "Low": "belief largely resolved",
+        "Moderate": "belief partially resolved",
+        "Elevated": "belief shifted toward designation",
+        "High": "strong indication of designation",
+    }.get(bl2, bl2)
+    st.markdown(
+        f"<div style='display:grid;grid-template-columns:1fr auto;"
+        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+        f"border-radius:8px;padding:11px 18px'>"
+        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+        f"Node 20 · DO designation risk"
+        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+        f"</div>"
+        f"<div style='font-family:Fraunces,serif;font-style:italic;"
+        f"font-size:0.86rem;color:#2F5C2A'>{bl2} — {_band_text}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── T3: Gladue ────────────────────────────────────────────────────────────────
 with TABS[5]:
