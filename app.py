@@ -287,6 +287,86 @@ def _top_drivers(P, k=5):
     dn.sort(key=lambda e: e["p"], reverse=True)
     return up[:k], dn[:k]
 
+# ── Node 7 Reliability Modifier (Chapter 5 §5.1.7) ───────────────────────────
+# Per JP's specification (confirmed): each conviction is assigned an ordinal
+# grade from N7's posterior + the conviction's own bail-denial flag.
+# This implements the mechanism §5.1.7 describes verbatim:
+#   "Criminal Record Reliability Modifier — Adjustment applied to prior
+#    convictions — Unmodified / Discounted / Heavily Discounted"
+# The multipliers below are conservative; they do NOT modify cal_weight,
+# they sit alongside it as an explicit N7-specific adjustment.
+
+# Multiplier scheme (confirmed by JP, Apr 27 2026)
+N7_MULTIPLIERS = {
+    "Unmodified":         1.00,   # full weight
+    "Discounted":         0.60,   # 40% reduction
+    "Heavily Discounted": 0.30,   # 70% reduction
+}
+
+# Threshold scheme (confirmed by JP, Apr 27 2026)
+def _n7_grade_for_conviction(conviction, n7_posterior):
+    """
+    Return the N7 ordinal grade for a single conviction.
+
+    A conviction is graded by combining:
+      (a) the per-conviction bail-denial reduction (`adj.bail`, set
+          on the Criminal Record tab when the conviction was added)
+      (b) the network-level N7 posterior (which reflects the case-wide
+          cascade conditions: bail+IAC+SCE absence+marginalisation)
+
+    Combination rule: take the maximum of the two — a conviction is at
+    least as discounted as either its own bail-denial flag suggests
+    OR the case-wide N7 cascade requires. This is the most conservative
+    interpretation faithful to §5.1.7: if either the conviction itself
+    OR the network state indicates cascade conditions, the conviction's
+    reliability is qualified.
+    """
+    per_conviction_bail = float(conviction.get("adj", {}).get("bail", 0.0))
+    n7_post = float(n7_posterior)
+
+    # Combined indicator: conservative max
+    combined = max(per_conviction_bail, n7_post)
+
+    # Threshold logic (confirmed by JP)
+    if combined < 0.30:
+        return "Unmodified"
+    elif combined <= 0.65:
+        return "Discounted"
+    else:
+        return "Heavily Discounted"
+
+
+def _n7_multiplier_for_conviction(conviction, n7_posterior):
+    """Return the numerical multiplier (0.30 / 0.60 / 1.00) for a conviction."""
+    return N7_MULTIPLIERS[_n7_grade_for_conviction(conviction, n7_posterior)]
+
+
+def _n7_aggregate_record_weight(criminal_record, n7_posterior):
+    """
+    Return (nominal_mean, n7_adjusted_mean, per_conviction_grades).
+
+    Nominal:   mean of cal_weight across all convictions (status quo)
+    Adjusted:  mean of (cal_weight × N7-multiplier) across convictions
+    Grades:    list of (grade, multiplier) tuples in conviction order
+    """
+    if not criminal_record:
+        return None, None, []
+
+    nominal_weights = [float(e.get("cal_weight", 0.0)) for e in criminal_record]
+    grades = [
+        (_n7_grade_for_conviction(e, n7_posterior),
+         _n7_multiplier_for_conviction(e, n7_posterior))
+        for e in criminal_record
+    ]
+    adjusted_weights = [w * m for w, (_, m) in zip(nominal_weights, grades)]
+
+    return (
+        float(sum(nominal_weights) / len(nominal_weights)),
+        float(sum(adjusted_weights) / len(adjusted_weights)),
+        grades,
+    )
+
+
 def _completeness_state():
     """
     Return list of dicts describing the populated-ness of each input surface:
@@ -4502,6 +4582,114 @@ with TABS[4]:
             f"font-weight:600;color:{esc_col}'>{esc_pat.title()}</div>",
             unsafe_allow_html=True)
 
+        # ── N7 Reliability Modifier panel (Chapter 5 §5.1.7) ──────────────
+        # Aggregate effect of N7 (bail-denial cascade) re-weighting on the
+        # criminal record. Per JP's specification, this surfaces the
+        # constructive-proof claim that distortions re-weight (not remove)
+        # convictions — Chapter 5 §5.1.7 verbatim: "This node never removes
+        # convictions. It qualifies how they may be used."
+        _n7_post_now = float(st.session_state.posteriors.get(7, 0.15))
+        _n7_nom, _n7_adj, _n7_grades = _n7_aggregate_record_weight(rec, _n7_post_now)
+        if _n7_nom is not None:
+            _n7_delta_pct = (_n7_adj - _n7_nom) * 100
+            _n7_delta_sign = "−" if _n7_delta_pct < 0 else ("+" if _n7_delta_pct > 0 else "")
+            # Count convictions per grade
+            _n7_count = {"Unmodified": 0, "Discounted": 0, "Heavily Discounted": 0}
+            for g, _m in _n7_grades:
+                _n7_count[g] = _n7_count.get(g, 0) + 1
+            # Accent colour: how much is the record re-weighted overall
+            _delta_abs = abs(_n7_delta_pct)
+            if _delta_abs < 5:
+                _n7_accent = "#3B6D11"; _n7_bg = "#F4F8EE"; _n7_border = "#C5D7AC"
+            elif _delta_abs < 15:
+                _n7_accent = "#BA7517"; _n7_bg = "#FAEEDA"; _n7_border = "#E5CC95"
+            else:
+                _n7_accent = "#A32D2D"; _n7_bg = "#FCEBEB"; _n7_border = "#E5B5B5"
+
+            st.markdown(
+                f"<div style='background:{_n7_bg};border:1px solid {_n7_border};"
+                f"border-left:3px solid {_n7_accent};border-radius:8px;"
+                f"padding:14px 18px;margin:14px 0 8px 0'>"
+                # Header row
+                f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:10px'>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"font-weight:600;padding:2px 8px;border-radius:4px;color:white;"
+                f"background:{_n7_accent}'>N7</div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.0rem;"
+                f"font-weight:500;color:#1A1A1A'>"
+                f"Reliability Modifier · Bail-denial cascade</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#707070;margin-left:auto'>"
+                f"<em>R v Antic</em> [2017] SCC 27 · Ch 5 §5.1.7</div>"
+                f"</div>"
+                # Body: nominal vs adjusted comparison
+                f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;"
+                f"margin-top:6px'>"
+                # Nominal
+                f"<div>"
+                f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                f"color:#707070;font-weight:600;margin-bottom:3px'>Nominal record</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:1.45rem;"
+                f"font-weight:600;color:#3A3A3A'>{_n7_nom*100:.1f}%</div>"
+                f"<div style='font-size:0.72rem;color:#9E9E9E;font-family:Fraunces,serif;"
+                f"font-style:italic'>mean calibrated weight</div>"
+                f"</div>"
+                # Adjusted
+                f"<div>"
+                f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                f"color:{_n7_accent};font-weight:600;margin-bottom:3px'>"
+                f"N7-adjusted record</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:1.45rem;"
+                f"font-weight:600;color:{_n7_accent}'>{_n7_adj*100:.1f}%</div>"
+                f"<div style='font-size:0.72rem;color:{_n7_accent};font-family:Fraunces,serif;"
+                f"font-style:italic'>{_n7_delta_sign}{abs(_n7_delta_pct):.1f}pp re-weighting</div>"
+                f"</div>"
+                # Grade distribution
+                f"<div>"
+                f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                f"color:#707070;font-weight:600;margin-bottom:3px'>Grade distribution</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.82rem;"
+                f"color:#3A3A3A;line-height:1.5'>"
+                f"<div>Unmodified · {_n7_count['Unmodified']}</div>"
+                f"<div>Discounted · {_n7_count['Discounted']}</div>"
+                f"<div>Heavily Discounted · {_n7_count['Heavily Discounted']}</div>"
+                f"</div>"
+                f"</div>"
+                f"</div>"
+                # Doctrinal caption
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.80rem;color:#707070;margin-top:12px;line-height:1.55;"
+                f"padding-top:10px;border-top:1px solid {_n7_border}'>"
+                f"Each conviction is graded against §5.1.7's tri-state ordinal "
+                f"(Unmodified / Discounted / Heavily Discounted) by combining "
+                f"its own bail-denial flag with the network N7 posterior "
+                f"({_n7_post_now*100:.0f}%). This node never removes convictions; "
+                f"it qualifies how they may be used. Multipliers — 1.00 / 0.60 / 0.30 — "
+                f"are conservative operationalisations of the §5.1.7 ordinal grades."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Methodology disclosure expander
+            with st.expander("Methodology — N7 reliability modifier", expanded=False):
+                st.markdown("""
+**Mechanism (Chapter 5 §5.1.7).** The bail-denial cascade node (N7) tracks the procedural conditions under which prior convictions were produced. Where bail was denied and ineffective representation, absent social context evidence, or marginalisation cluster, the network's posterior at N7 rises and the resulting convictions' evidentiary reliability is qualified — not removed.
+
+**Per-conviction grading.** For each conviction, the N7 grade is determined by the maximum of (a) the conviction's own `adj.bail` value (set when the conviction was added) and (b) the network's current N7 posterior. This is the most conservative reading: a conviction is at least as discounted as either its own indicator or the case-wide cascade state requires.
+
+**Thresholds.**
+- Combined indicator < 0.30 → **Unmodified** (multiplier 1.00)
+- 0.30 ≤ combined ≤ 0.65 → **Discounted** (multiplier 0.60)
+- Combined > 0.65 → **Heavily Discounted** (multiplier 0.30)
+
+**Aggregate.** The N7-adjusted record weight is the mean across convictions of (cal_weight × N7_multiplier). The nominal record weight is the mean of cal_weight alone. The difference is the N7 re-weighting effect on the record as a whole.
+
+**Doctrinal source.** *R v Antic* [2017] SCC 27 (bail jurisprudence); Tolppanen Report (2018) on bail-denial cascade dynamics; Chapter 5 §5.1.7 (Wrongful Conviction Guilty Plea cascade modelling).
+
+**Scope of this implementation.** This is the Node 7 distortion only. The full Tetrad of distortions (N6 IAC, N14 temporal, N15 jurisdictional, N17 over-policing, N18 SCE integration audit) extends the same architectural pattern in subsequent implementation work.
+                """)
+
         if esc_data.get("note"):
             esc_icon = "⚠️" if esc_pat=="escalating" else "✅" if esc_pat in ("de-escalating","desistance") else "ℹ️"
             st.markdown(
@@ -4521,6 +4709,16 @@ with TABS[4]:
             raw_pct = e["raw_weight"] * 100
             col_c = "#3B6D11" if cal_pct >= 70 else "#BA7517" if cal_pct >= 40 else "#A32D2D"
             adj = e["adj"]
+            # ── N7 reliability modifier for this conviction (Ch 5 §5.1.7) ──
+            _n7_grade_card = _n7_grade_for_conviction(e, _n7_post_now)
+            _n7_mult_card  = N7_MULTIPLIERS[_n7_grade_card]
+            _n7_eff_pct    = e["cal_weight"] * _n7_mult_card * 100
+            # Grade-specific colour
+            _grade_col = {
+                "Unmodified":         "#3B6D11",
+                "Discounted":         "#BA7517",
+                "Heavily Discounted": "#A32D2D",
+            }[_n7_grade_card]
 
             # Build distortion flags
             flags = []
@@ -4585,13 +4783,22 @@ with TABS[4]:
                 f" · {court_str} · {jur_str} · {sent_str}</div>"
                 f"<div style='margin-top:6px'>{ser_badge}{gang_badge}</div>"
                 f"</div>"
-                f"<div style='text-align:right;min-width:90px'>"
+                f"<div style='text-align:right;min-width:130px'>"
                 f"<div style='font-family:JetBrains Mono,monospace;font-size:1.35rem;"
                 f"font-weight:600;color:{col_c}'>{cal_pct:.0f}%</div>"
                 f"<div style='font-size:.7rem;color:#9E9E9E;font-family:Fraunces,serif;"
                 f"font-style:italic'>calibrated weight</div>"
                 f"<div style='font-family:JetBrains Mono,monospace;font-size:.7rem;"
-                f"color:#C7C2B8;text-decoration:line-through'>{raw_pct:.0f}% raw</div>"
+                f"color:#C7C2B8;text-decoration:line-through;margin-bottom:6px'>{raw_pct:.0f}% raw</div>"
+                # N7 reliability grade (Chapter 5 §5.1.7)
+                f"<div style='border-top:1px solid #EFEDE7;padding-top:6px;margin-top:4px'>"
+                f"<div style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.08em;"
+                f"color:#9E9E9E;font-weight:600;margin-bottom:2px'>N7 · Antic</div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:0.84rem;"
+                f"font-weight:500;color:{_grade_col};line-height:1.2'>{_n7_grade_card}</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"color:{_grade_col};margin-top:1px'>×{_n7_mult_card:.2f} → {_n7_eff_pct:.0f}%</div>"
+                f"</div>"
                 f"</div></div>"
                 f"<div style='margin-top:.55rem'>{flag_html}</div>"
                 f"</div>",
