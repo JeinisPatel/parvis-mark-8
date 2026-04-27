@@ -367,6 +367,126 @@ def _n7_aggregate_record_weight(criminal_record, n7_posterior):
     )
 
 
+# ── Jump Principle: Forward-Contamination Ceiling Effect (Ch 3 §3.5.3) ───────
+# JP's Chapter 3 §3.5.3: "prior sentences, once imposed, function as baseline
+# reference points for subsequent legal decisions regardless of whether their
+# original severity reflected contemporaneous doctrine, proportionality
+# principles, or systemic context. Inflated past sentences thereby become
+# anchors for future escalation, producing recursive severity over time."
+#
+# Operationalisation (confirmed JP, Apr 27 2026):
+#   ceiling_effect_per_conviction =
+#       sentence_inflation_factor × era_multiplier × gladue_compliance_multiplier
+#   cumulative_ceiling_for_conviction_Y = sum(ceiling_effects of priors X<Y)
+#       capped at 0.40 (~40 percentage-point maximum upward shift on N2)
+#   N2 receives upward shift = 0.5 × cumulative_ceiling_effect (most recent)
+#
+# All values are conservative methodological choices; they belong in the
+# methodological appendix. The architecture is the doctrinal claim; the
+# specific numbers are the claim's operationalisation.
+
+# Sentence inflation factor — keyed on the existing sentence type label.
+# A federal custody (2+ years) sentence carries the highest baseline anchoring
+# capacity; CSO/probation/discharge carry minimal anchoring.
+JUMP_SENTENCE_INFLATION = {
+    "Federal custody (2+ years)":         0.20,
+    "Provincial custody (< 2 years)":     0.10,
+    "Conditional sentence order (CSO)":   0.03,
+    "Probation only":                     0.01,
+    "Fine only":                          0.0,
+    "Absolute / conditional discharge":   0.0,
+    "Time served":                        0.05,
+    "Other / unknown":                    0.05,
+}
+
+# Era multiplier — keyed on conviction year. Reflects §3.5.3's identified
+# punitive phases: 1995-2005 baseline; 2006-2015 mandatory-minimum revival
+# / Safe Streets and Communities Act peak; 2016-2019 partial restoration;
+# 2020+ post-Bill-C-5 restoration.
+def _jump_era_multiplier(year):
+    """Return era inflation multiplier per Ch 3 §3.5.3 phase analysis."""
+    try:
+        y = int(year)
+    except (TypeError, ValueError):
+        return 1.0
+    if 1995 <= y <= 2005:
+        return 1.0
+    elif 2006 <= y <= 2015:
+        return 1.5  # Mandatory-minimum revival / SSCA peak
+    elif 2016 <= y <= 2019:
+        return 1.2  # Partial restoration after SCC mandatory-minimum strikes
+    elif y >= 2020:
+        return 1.0  # Bill C-5 restoration
+    else:
+        return 1.0  # Pre-1995: baseline
+
+# Gladue-compliance multiplier — when a conviction's adj.gladue is elevated,
+# this signals that Gladue/Ipeelee/Morris factors were not substantively
+# applied at the original sentencing, which per §3.5.4 amplifies temporal
+# distortion ("legally required contextual reasoning was absent or
+# underdeveloped").
+def _jump_gladue_multiplier(conviction):
+    """Return Gladue-non-compliance multiplier per Ch 3 §3.5.4."""
+    adj_gladue = float(conviction.get("adj", {}).get("gladue", 0.0))
+    if adj_gladue > 0.30:
+        return 1.4  # Elevated: Gladue not substantively applied
+    return 1.0
+
+def _jump_ceiling_for_conviction(conviction):
+    """
+    Compute the ceiling-effect contribution of a single conviction (its own
+    inflationary anchoring weight, before cumulation across the record).
+
+    Per §3.5.3: a non-Gladue-compliant prior with an inflated carceral term
+    carries a strong anchoring effect on subsequent severity assessment.
+    """
+    sent_type = conviction.get("sentence_type", "Other / unknown")
+    base = JUMP_SENTENCE_INFLATION.get(sent_type, 0.05)
+    era = _jump_era_multiplier(conviction.get("year", 2020))
+    gladue_amp = _jump_gladue_multiplier(conviction)
+    return float(base * era * gladue_amp)
+
+def _jump_cumulative_chain(criminal_record_chronological):
+    """
+    Return list of (own_ceiling, inherited_ceiling) tuples in chronological order.
+
+    `own_ceiling` is the conviction's own inflationary contribution.
+    `inherited_ceiling` is the sum of all prior convictions' own_ceiling,
+    capped at 0.40 per §3.5.3 cumulative-cap methodology choice.
+
+    The first (earliest) conviction has inherited = 0; each subsequent
+    conviction inherits the running sum of prior ceiling effects.
+    """
+    JUMP_CUMULATIVE_CAP = 0.40
+    chain = []
+    running = 0.0
+    for e in criminal_record_chronological:
+        own = _jump_ceiling_for_conviction(e)
+        inherited_capped = min(running, JUMP_CUMULATIVE_CAP)
+        chain.append((own, inherited_capped))
+        running += own
+    return chain
+
+def _jump_record_n2_shift(criminal_record_chronological):
+    """
+    Return the upward shift to apply to N2 from the cumulative ceiling effect.
+
+    Reads the cumulative ceiling at the most recent conviction (last in
+    chronological order) and applies a 0.5 coefficient — the shift to N2 is
+    half the cumulative ceiling, conservatively scaled to keep N2 within
+    [0, 0.95] in _cr_feed_nodes.
+    """
+    if not criminal_record_chronological:
+        return 0.0
+    chain = _jump_cumulative_chain(criminal_record_chronological)
+    # Cumulative ceiling AT the most recent conviction = inherited + own
+    # (because the most recent conviction is itself contributing forward to
+    # any future decision).
+    own_last, inherited_last = chain[-1]
+    cumulative_at_end = min(inherited_last + own_last, 0.40)
+    return 0.5 * cumulative_at_end
+
+
 def _completeness_state():
     """
     Return list of dicts describing the populated-ness of each input surface:
@@ -4220,8 +4340,18 @@ with TABS[4]:
             n2_raw = float(np.clip(
                 0.20 + 0.45 * max_severity + 0.25 * mean_severity + count_bonus,
                 0.08, 0.90))
-            cr_adj[2] = n2_raw - st.session_state.posteriors.get(2, 0.08)
-            st.session_state.cr_doc_adj[2] = n2_raw
+            # ── Jump principle (Ch 3 §3.5.3) — forward-contamination shift ──
+            # Cumulative ceiling effect from prior convictions raises the
+            # baseline against which subsequent severity is measured. Applied
+            # here as an upward shift on N2 (Violent history) before
+            # propagation to N20. The shift is conservative: 0.5× cumulative
+            # ceiling (capped at 0.40), so the maximum N2 shift is +0.20.
+            n2_jump_shift = _jump_record_n2_shift(rec)
+            n2_raw_with_jump = float(np.clip(n2_raw + n2_jump_shift, 0.08, 0.95))
+            st.session_state.cr_doc_adj["jump_shift"] = n2_jump_shift
+            st.session_state.cr_doc_adj["n2_pre_jump"] = n2_raw
+            cr_adj[2] = n2_raw_with_jump - st.session_state.posteriors.get(2, 0.08)
+            st.session_state.cr_doc_adj[2] = n2_raw_with_jump
 
         # ── N18: Dynamic risk — escalation signal ─────────────────────────────
         esc = _detect_escalation(rec)
@@ -4418,28 +4548,30 @@ with TABS[4]:
             "<div style='font-family:Fraunces,serif;font-style:italic;"
             "font-size:0.78rem;color:#3A3A3A;line-height:1.55'>"
             "Each slider reflects the degree to which this specific conviction's "
-            "evidentiary weight should be discounted based on the distortion "
-            "nodes currently active in the network. Defaults pre-populated from "
-            "live posteriors; override per-case as warranted."
+            "evidentiary weight should be discounted based on doctrinal distortions "
+            "applicable to this conviction. Sliders default to 0; raise affirmatively "
+            "where the case file or transcript supports the relevant distortion "
+            "for this conviction. Per-conviction values are independent of the "
+            "network's case-wide posteriors."
             "</div></div>",
             unsafe_allow_html=True,
         )
 
         ca3, ca4 = st.columns(2)
         with ca3:
-            adj_bail   = st.slider("Bail-denial / coercive plea reduction",  0.0, 1.0, min(pN7, 0.70),  0.05, key="cr_adj_bail",
-                help="R v Antic [2017] SCC 27 — conviction may reflect coercive plea under detention rather than genuine admission of guilt")
-            adj_ewert  = st.slider("Ewert tool-invalidity reduction",         0.0, 1.0, min(pN5, 0.50),  0.05, key="cr_adj_ewert",
-                help="Ewert v Canada [2018] SCC 30 — actuarial evidence underlying this conviction may carry reduced cultural validity")
-            adj_gladue = st.slider("Gladue misapplication reduction",         0.0, 1.0, min(pN12, 0.50), 0.05, key="cr_adj_gladue",
-                help="R v Morris 2021 ONCA 680 — contextual factors may have been ignored or misapplied at original sentencing")
+            adj_bail   = st.slider("Bail-denial / coercive plea reduction",  0.0, 1.0, 0.0,  0.05, key="cr_adj_bail",
+                help="R v Antic [2017] SCC 27 — set affirmatively where this specific conviction was produced under bail-denial cascade conditions (extended pre-trial detention, coercive plea pressure)")
+            adj_ewert  = st.slider("Ewert tool-invalidity reduction",         0.0, 1.0, 0.0,  0.05, key="cr_adj_ewert",
+                help="Ewert v Canada [2018] SCC 30 — set affirmatively where this conviction's foundation involved actuarial evidence of contested cultural validity")
+            adj_gladue = st.slider("Gladue misapplication reduction",         0.0, 1.0, 0.0, 0.05, key="cr_adj_gladue",
+                help="R v Morris 2021 ONCA 680 — set affirmatively where Gladue/Ipeelee/Morris factors were ignored or misapplied at this conviction's sentencing")
         with ca4:
-            adj_police = st.slider("Over-policing / record inflation reduction",0.0, 1.0, min(pN14, 0.50),0.05, key="cr_adj_police",
-                help="R v Le [2019] SCC 34 — conviction may be partly a product of racialised over-policing rather than actual criminogenic conduct")
+            adj_police = st.slider("Over-policing / record inflation reduction",0.0, 1.0, 0.0,0.05, key="cr_adj_police",
+                help="R v Le [2019] SCC 34 — set affirmatively where this conviction reflects racialised over-policing rather than criminogenic conduct")
             adj_mm     = st.slider("Mandatory minimum distortion reduction",   0.0, 1.0, 0.0,             0.05, key="cr_adj_mm",
-                help="R v Nur [2015] / Lloyd [2016] — conviction may have been influenced by a now-struck mandatory minimum")
-            adj_time   = st.slider("Temporal attenuation (age / distance)",    0.0, 1.0, min(pN15*0.6, 0.80),0.05, key="cr_adj_time",
-                help="R v Boutilier [2017] SCC 64 — old convictions carry reduced weight especially where age burnout is active")
+                help="R v Nur [2015] / Lloyd [2016] — set affirmatively where this conviction was influenced by a now-struck mandatory minimum")
+            adj_time   = st.slider("Temporal attenuation (age / distance)",    0.0, 1.0, 0.0,0.05, key="cr_adj_time",
+                help="R v Boutilier [2017] SCC 64 — set affirmatively where this conviction is sufficiently remote that age-burnout attenuation applies")
 
         # Sentence type modifier — CSO/probation/discharge suggests limited dangerousness
         _sent_modifier = {
@@ -4535,6 +4667,12 @@ with TABS[4]:
                     "cal_weight":  cal_wt,
                 }
                 st.session_state.criminal_record.append(entry)
+                # Sort chronologically (earliest first) — stable, by year only
+                # (so insertions of multiple convictions in the same year retain
+                # the order in which they were added).
+                st.session_state.criminal_record.sort(
+                    key=lambda e: int(e.get("year", 0))
+                )
                 # Feed calibrated N2 and distortion corrections back into the network
                 _cr_feed_nodes()
                 st.rerun()
@@ -4690,6 +4828,115 @@ with TABS[4]:
 **Scope of this implementation.** This is the Node 7 distortion only. The full Tetrad of distortions (N6 IAC, N14 temporal, N15 jurisdictional, N17 over-policing, N18 SCE integration audit) extends the same architectural pattern in subsequent implementation work.
                 """)
 
+            # ── Jump Principle panel (Ch 3 §3.5.3) ──────────────────────────
+            # Cumulative forward-contamination effect from prior convictions
+            # raising the baseline for subsequent severity assessment.
+            _jump_total_shift = st.session_state.cr_doc_adj.get("jump_shift", 0.0)
+            _n2_pre  = st.session_state.cr_doc_adj.get("n2_pre_jump", None)
+            _n2_post = st.session_state.cr_doc_adj.get(2, None)
+            # Only render if we have a violent N2 calibration
+            if _n2_pre is not None and _n2_post is not None:
+                _jump_pp = _jump_total_shift * 100
+                # Accent colour mirrors N7 panel scheme
+                if _jump_pp < 5:
+                    _j_accent = "#3B6D11"; _j_bg = "#F4F8EE"; _j_border = "#C5D7AC"
+                elif _jump_pp < 15:
+                    _j_accent = "#BA7517"; _j_bg = "#FAEEDA"; _j_border = "#E5CC95"
+                else:
+                    _j_accent = "#A32D2D"; _j_bg = "#FCEBEB"; _j_border = "#E5B5B5"
+
+                # Compute total cumulative ceiling at end-of-record for caption
+                _full_chain = _jump_cumulative_chain(rec)
+                _own_last, _inh_last = _full_chain[-1]
+                _cumulative_at_end = min(_inh_last + _own_last, 0.40)
+
+                st.markdown(
+                    f"<div style='background:{_j_bg};border:1px solid {_j_border};"
+                    f"border-left:3px solid {_j_accent};border-radius:8px;"
+                    f"padding:14px 18px;margin:14px 0 8px 0'>"
+                    # Header row
+                    f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:10px'>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                    f"font-weight:600;padding:2px 8px;border-radius:4px;color:white;"
+                    f"background:{_j_accent}'>JUMP</div>"
+                    f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.0rem;"
+                    f"font-weight:500;color:#1A1A1A'>"
+                    f"Forward Contamination · Jump principle</div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:0.78rem;color:#707070;margin-left:auto'>"
+                    f"Ch 3 §3.5.3 · recursive severity</div>"
+                    f"</div>"
+                    # Body: three columns
+                    f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;"
+                    f"margin-top:6px'>"
+                    # N2 pre-jump
+                    f"<div>"
+                    f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                    f"color:#707070;font-weight:600;margin-bottom:3px'>N2 · pre-jump</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:1.45rem;"
+                    f"font-weight:600;color:#3A3A3A'>{_n2_pre*100:.1f}%</div>"
+                    f"<div style='font-size:0.72rem;color:#9E9E9E;font-family:Fraunces,serif;"
+                    f"font-style:italic'>baseline violent history</div>"
+                    f"</div>"
+                    # N2 post-jump
+                    f"<div>"
+                    f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                    f"color:{_j_accent};font-weight:600;margin-bottom:3px'>N2 · post-jump</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:1.45rem;"
+                    f"font-weight:600;color:{_j_accent}'>{_n2_post*100:.1f}%</div>"
+                    f"<div style='font-size:0.72rem;color:{_j_accent};font-family:Fraunces,serif;"
+                    f"font-style:italic'>+{_jump_pp:.1f}pp from inherited ceiling</div>"
+                    f"</div>"
+                    # Cumulative ceiling at end of record
+                    f"<div>"
+                    f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                    f"color:#707070;font-weight:600;margin-bottom:3px'>Cumulative ceiling</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:1.45rem;"
+                    f"font-weight:600;color:#3A3A3A'>{_cumulative_at_end*100:.1f}pp</div>"
+                    f"<div style='font-size:0.72rem;color:#9E9E9E;font-family:Fraunces,serif;"
+                    f"font-style:italic'>at end-of-record (cap 40pp)</div>"
+                    f"</div>"
+                    f"</div>"
+                    # Doctrinal caption
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:0.80rem;color:#707070;margin-top:12px;line-height:1.55;"
+                    f"padding-top:10px;border-top:1px solid {_j_border}'>"
+                    f"Inflated past sentences function as anchors for future escalation, "
+                    f"producing recursive severity over time. Each conviction's own ceiling "
+                    f"contribution is computed from sentence type, era (§3.5.3 phases: "
+                    f"1995–2005 baseline, 2006–2015 mandatory-minimum revival, 2016–2019 "
+                    f"partial restoration, 2020+ Bill C-5 restoration), and Gladue-compliance "
+                    f"per §3.5.4. Cumulative shift on N2 is half the cumulative ceiling, "
+                    f"capped at 20pp."
+                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Jump methodology expander
+                with st.expander("Methodology — Jump principle (Ch 3 §3.5.3)", expanded=False):
+                    st.markdown("""
+**Mechanism (Chapter 3 §3.5.3).** *"Prior sentences, once imposed, function as baseline reference points for subsequent legal decisions regardless of whether their original severity reflected contemporaneous doctrine, proportionality principles, or systemic context. Inflated past sentences thereby become anchors for future escalation, producing recursive severity over time."*
+
+**Per-conviction ceiling.** For each conviction, an *own ceiling effect* is computed from three factors:
+
+1. **Sentence inflation factor** — keyed on sentence type. Federal custody (2+ years): 0.20. Provincial custody (< 2 years): 0.10. CSO: 0.03. Probation: 0.01. Fine/discharge: 0.0. Time served: 0.05.
+
+2. **Era multiplier** — keyed on conviction year per §3.5.3 phase analysis. 1995–2005 (post C-41 baseline): ×1.0. 2006–2015 (mandatory-minimum revival / SSCA peak): ×1.5. 2016–2019 (partial restoration after SCC strikes): ×1.2. 2020+ (Bill C-5 restoration): ×1.0.
+
+3. **Gladue-compliance multiplier** — when this conviction's `adj.gladue` exceeds 0.30 (Gladue not substantively applied at original sentencing), ×1.4 per §3.5.4. Otherwise ×1.0.
+
+`own_ceiling = sentence_inflation × era × gladue_compliance`
+
+**Cumulative inheritance.** Convictions are processed in chronological order. Each conviction's *inherited ceiling* is the sum of all prior convictions' own ceilings, capped at 0.40 (40 percentage points). The first (earliest) conviction has zero inherited ceiling.
+
+**N2 shift.** The cumulative ceiling at end-of-record (most recent inherited + own) is multiplied by 0.5 and added to N2's calibrated input. Maximum N2 upward shift is 0.20 (20 percentage points), reflecting the conservative position that anchoring contributes to but does not dominate the violent-history posterior.
+
+**Doctrinal source.** Chapter 3 §3.5.3 (jump principle); §3.5.4 (temporal-Gladue interaction); Chapter 3 §3.4.5 (cumulative inferential inertia, addressed via N7 reliability discount in concert).
+
+**Scope of this implementation.** Forward contamination via numerical anchoring (the jump principle) is operationalised here. Inferential inertia (§3.4.5) is operationalised through the existing N7 reliability discount: convictions graded Heavily Discounted contribute proportionately less to N2's input, dampening cumulative reinforcement. Audit transparency — each step's contribution visible to the reviewing court — completes the architectural answer to §3.4.5.
+                    """)
+
         if esc_data.get("note"):
             esc_icon = "⚠️" if esc_pat=="escalating" else "✅" if esc_pat in ("de-escalating","desistance") else "ℹ️"
             st.markdown(
@@ -4702,6 +4949,10 @@ with TABS[4]:
                 unsafe_allow_html=True)
 
         st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
+
+        # Pre-compute the chronological ceiling-effect chain (Ch 3 §3.5.3)
+        # Index `i` matches sorted chronological order (earliest first).
+        _jump_chain = _jump_cumulative_chain(rec)
 
         # Per-conviction cards — each with its own document attachment
         for i, e in enumerate(rec):
@@ -4719,6 +4970,12 @@ with TABS[4]:
                 "Discounted":         "#BA7517",
                 "Heavily Discounted": "#A32D2D",
             }[_n7_grade_card]
+            # ── Jump-principle ceiling effect (Ch 3 §3.5.3) ────────────────
+            _jump_own, _jump_inherited = _jump_chain[i]
+            # Colour scale for own ceiling effect
+            if _jump_own < 0.10:   _jump_col = "#3B6D11"
+            elif _jump_own < 0.25: _jump_col = "#BA7517"
+            else:                  _jump_col = "#A32D2D"
 
             # Build distortion flags
             flags = []
@@ -4783,7 +5040,7 @@ with TABS[4]:
                 f" · {court_str} · {jur_str} · {sent_str}</div>"
                 f"<div style='margin-top:6px'>{ser_badge}{gang_badge}</div>"
                 f"</div>"
-                f"<div style='text-align:right;min-width:130px'>"
+                f"<div style='text-align:right;min-width:140px'>"
                 f"<div style='font-family:JetBrains Mono,monospace;font-size:1.35rem;"
                 f"font-weight:600;color:{col_c}'>{cal_pct:.0f}%</div>"
                 f"<div style='font-size:.7rem;color:#9E9E9E;font-family:Fraunces,serif;"
@@ -4798,6 +5055,15 @@ with TABS[4]:
                 f"font-weight:500;color:{_grade_col};line-height:1.2'>{_n7_grade_card}</div>"
                 f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
                 f"color:{_grade_col};margin-top:1px'>×{_n7_mult_card:.2f} → {_n7_eff_pct:.0f}%</div>"
+                f"</div>"
+                # Jump-principle ceiling effect (Ch 3 §3.5.3)
+                f"<div style='border-top:1px solid #EFEDE7;padding-top:6px;margin-top:6px'>"
+                f"<div style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.08em;"
+                f"color:#9E9E9E;font-weight:600;margin-bottom:2px'>Jump · §3.5.3</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"color:{_jump_col};line-height:1.3'>own +{_jump_own*100:.1f}pp</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.72rem;"
+                f"color:#707070;line-height:1.3'>inherited +{_jump_inherited*100:.1f}pp</div>"
                 f"</div>"
                 f"</div></div>"
                 f"<div style='margin-top:.55rem'>{flag_html}</div>"
