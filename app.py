@@ -1110,7 +1110,30 @@ with TABS[1]:
             st.markdown("<div class='sh'>Node types</div>",unsafe_allow_html=True)
             for t,c in TC.items(): st.markdown(f"<span style='color:{c}'>●</span>&nbsp;{TL[t]}",unsafe_allow_html=True)
             st.markdown("---")
-            st.markdown(dobar(dp),unsafe_allow_html=True)
+            if _empty:
+                st.markdown(
+                    f"<div style='background:#FBFAF7;border:1px solid #E0DDD6;"
+                    f"border-radius:12px;padding:.8rem 1.2rem;margin-bottom:1rem;"
+                    f"display:flex;align-items:center;gap:1.5rem'>"
+                    f"<div style='text-align:center;min-width:80px'>"
+                    f"<div style='font-size:.7rem;color:#9E9E9E;margin-bottom:2px'>Node 20</div>"
+                    f"<div style='font-size:1.6rem;font-weight:500;font-family:Fraunces,Georgia,serif;"
+                    f"font-style:italic;color:#9E9E9E'>—</div>"
+                    f"<div style='font-size:.78rem;font-family:Fraunces,serif;font-style:italic;"
+                    f"color:#707070'>Awaiting case data</div>"
+                    f"</div>"
+                    f"<div style='flex:1'>"
+                    f"<div style='font-size:.82rem;font-weight:500;margin-bottom:6px;color:#707070'>"
+                    f"DO designation risk — posterior probability</div>"
+                    f"<div style='height:5px;background:rgba(0,0,0,.06);border-radius:3px'></div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;font-size:.78rem;"
+                    f"color:#9E9E9E;margin-top:6px'>"
+                    f"Enter case profile, criminal record, or Gladue / SCE evidence to begin.</div>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(dobar(dp),unsafe_allow_html=True)
 
 # ── T2: Case profile ──────────────────────────────────────────────────────────
 with TABS[2]:
@@ -1471,21 +1494,38 @@ with TABS[2]:
         "Elevated": "belief shifted toward designation",
         "High": "strong indication of designation",
     }.get(bl2, bl2)
-    st.markdown(
-        f"<div style='display:grid;grid-template-columns:1fr auto;"
-        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
-        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
-        f"border-radius:8px;padding:11px 18px'>"
-        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
-        f"Node 20 · DO designation risk"
-        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
-        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
-        f"</div>"
-        f"<div style='font-family:Fraunces,serif;font-style:italic;"
-        f"font-size:0.86rem;color:#2F5C2A'>{bl2} — {_band_text}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if _empty:
+        st.markdown(
+            "<div style='display:grid;grid-template-columns:1fr auto;"
+            "align-items:center;gap:18px;background:#FBFAF7;"
+            "border:1px solid #E0DDD6;border-radius:8px;"
+            "padding:11px 18px;margin-top:24px;margin-bottom:0'>"
+            "<div style='font-size:0.82rem;color:#9E9E9E;font-weight:500'>"
+            "Node 20 · DO designation risk"
+            "<span style='font-family:Fraunces,Georgia,serif;font-style:italic;"
+            "font-size:1.05rem;font-weight:500;color:#9E9E9E;margin-left:10px'>—</span>"
+            "</div>"
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#707070'>Awaiting case data</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='display:grid;grid-template-columns:1fr auto;"
+            f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+            f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+            f"border-radius:8px;padding:11px 18px'>"
+            f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+            f"Node 20 · DO designation risk"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+            f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.86rem;color:#2F5C2A'>{bl2} — {_band_text}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── T3: Gladue ────────────────────────────────────────────────────────────────
 with TABS[5]:
@@ -1694,21 +1734,38 @@ with TABS[5]:
         "Elevated": f"belief shifted · {n_checked_factors} factor(s)",
         "High": f"strong indication · {n_checked_factors} factor(s)",
     }.get(bl, bl)
-    st.markdown(
-        f"<div style='display:grid;grid-template-columns:1fr auto;"
-        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
-        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
-        f"border-radius:8px;padding:11px 18px;margin-bottom:24px'>"
-        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
-        f"Node 20 · DO designation risk"
-        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
-        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
-        f"</div>"
-        f"<div style='font-family:Fraunces,serif;font-style:italic;"
-        f"font-size:0.86rem;color:#2F5C2A'>{bl} — {_band_text}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if _empty:
+        st.markdown(
+            "<div style='display:grid;grid-template-columns:1fr auto;"
+            "align-items:center;gap:18px;background:#FBFAF7;"
+            "border:1px solid #E0DDD6;border-radius:8px;"
+            "padding:11px 18px;margin-top:24px;margin-bottom:0'>"
+            "<div style='font-size:0.82rem;color:#9E9E9E;font-weight:500'>"
+            "Node 20 · DO designation risk"
+            "<span style='font-family:Fraunces,Georgia,serif;font-style:italic;"
+            "font-size:1.05rem;font-weight:500;color:#9E9E9E;margin-left:10px'>—</span>"
+            "</div>"
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#707070'>Awaiting case data</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='display:grid;grid-template-columns:1fr auto;"
+            f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+            f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+            f"border-radius:8px;padding:11px 18px;margin-bottom:24px'>"
+            f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+            f"Node 20 · DO designation risk"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+            f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.86rem;color:#2F5C2A'>{bl} — {_band_text}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
     # ── Ipeelee §60 reminder at bottom ────────────────────────────────────
     st.markdown(
@@ -2005,21 +2062,38 @@ with TABS[6]:
         "Elevated": f"belief shifted · {_n_active} factor(s)",
         "High":     f"strong indication · {_n_active} factor(s)",
     }.get(bl_sce, bl_sce)
-    st.markdown(
-        f"<div style='display:grid;grid-template-columns:1fr auto;"
-        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
-        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
-        f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
-        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
-        f"Node 20 · DO designation risk"
-        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
-        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
-        f"</div>"
-        f"<div style='font-family:Fraunces,serif;font-style:italic;"
-        f"font-size:0.86rem;color:#2F5C2A'>{bl_sce} — {_band_text_sce}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if _empty:
+        st.markdown(
+            "<div style='display:grid;grid-template-columns:1fr auto;"
+            "align-items:center;gap:18px;background:#FBFAF7;"
+            "border:1px solid #E0DDD6;border-radius:8px;"
+            "padding:11px 18px;margin-top:24px;margin-bottom:0'>"
+            "<div style='font-size:0.82rem;color:#9E9E9E;font-weight:500'>"
+            "Node 20 · DO designation risk"
+            "<span style='font-family:Fraunces,Georgia,serif;font-style:italic;"
+            "font-size:1.05rem;font-weight:500;color:#9E9E9E;margin-left:10px'>—</span>"
+            "</div>"
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#707070'>Awaiting case data</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='display:grid;grid-template-columns:1fr auto;"
+            f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+            f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+            f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
+            f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+            f"Node 20 · DO designation risk"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+            f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.86rem;color:#2F5C2A'>{bl_sce} — {_band_text_sce}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── T5: Evidence review ───────────────────────────────────────────────────────
 with TABS[7]:
@@ -2247,32 +2321,61 @@ with TABS[7]:
         "Elevated": f"belief shifted · {n_overrides} override(s)",
         "High":     f"strong indication · {n_overrides} override(s)",
     }.get(bl_rd, bl_rd)
-    st.markdown(
-        f"<div style='display:grid;grid-template-columns:1fr auto;"
-        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
-        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
-        f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
-        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
-        f"Node 20 · DO designation risk"
-        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
-        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
-        f"</div>"
-        f"<div style='font-family:Fraunces,serif;font-style:italic;"
-        f"font-size:0.86rem;color:#2F5C2A'>{bl_rd} — {_band_text_rd}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if _empty:
+        st.markdown(
+            "<div style='display:grid;grid-template-columns:1fr auto;"
+            "align-items:center;gap:18px;background:#FBFAF7;"
+            "border:1px solid #E0DDD6;border-radius:8px;"
+            "padding:11px 18px;margin-top:24px;margin-bottom:0'>"
+            "<div style='font-size:0.82rem;color:#9E9E9E;font-weight:500'>"
+            "Node 20 · DO designation risk"
+            "<span style='font-family:Fraunces,Georgia,serif;font-style:italic;"
+            "font-size:1.05rem;font-weight:500;color:#9E9E9E;margin-left:10px'>—</span>"
+            "</div>"
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#707070'>Awaiting case data</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='display:grid;grid-template-columns:1fr auto;"
+            f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+            f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+            f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
+            f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+            f"Node 20 · DO designation risk"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+            f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.86rem;color:#2F5C2A'>{bl_rd} — {_band_text_rd}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── T6: Inference ─────────────────────────────────────────────────────────────
 with TABS[8]:
     P=st.session_state.posteriors;dp6=P[20];bl6,bc6,bg6=rb(dp6)
     st.markdown("### Inference — posterior distribution")
     st.caption("Variable Elimination posteriors (pgmpy). Arc on DAG reflects P(High).")
-    st.markdown(f"""<div style="background:{bg6};border:1px solid {bc6}44;border-radius:14px;
-    padding:1rem 1.5rem;text-align:center;margin-bottom:1.2rem">
-    <div style="font-size:.75rem;color:{bc6}">Node 20 — Dangerous Offender designation risk</div>
-    <div style="font-size:2.8rem;font-weight:700;font-family:monospace;color:{bc6}">{dp6*100:.1f}%</div>
-    <div style="font-size:.9rem;font-weight:600;color:{bc6}">{bl6}</div></div>""",unsafe_allow_html=True)
+    if _empty:
+        st.markdown(
+            f"<div style='background:#FBFAF7;border:1px solid #E0DDD6;"
+            f"border-radius:14px;padding:1rem 1.5rem;text-align:center;margin-bottom:1.2rem'>"
+            f"<div style='font-size:.75rem;color:#9E9E9E'>Node 20 — Dangerous Offender designation risk</div>"
+            f"<div style='font-size:2.4rem;font-weight:500;font-family:Fraunces,Georgia,serif;"
+            f"font-style:italic;color:#9E9E9E;margin:6px 0 4px 0'>—</div>"
+            f"<div style='font-size:.9rem;font-family:Fraunces,serif;font-style:italic;color:#707070'>"
+            f"Awaiting case data</div></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(f"""<div style="background:{bg6};border:1px solid {bc6}44;border-radius:14px;
+        padding:1rem 1.5rem;text-align:center;margin-bottom:1.2rem">
+        <div style="font-size:.75rem;color:{bc6}">Node 20 — Dangerous Offender designation risk</div>
+        <div style="font-size:2.8rem;font-weight:700;font-family:monospace;color:{bc6}">{dp6*100:.1f}%</div>
+        <div style="font-size:.9rem;font-weight:600;color:{bc6}">{bl6}</div></div>""",unsafe_allow_html=True)
     cols4=st.columns(4)
     for i,nid in enumerate(n for n in range(1,21) if n!=20):
         m=NODE_META[nid];col=TC[m["type"]];p=P.get(nid,.5)
@@ -3436,15 +3539,29 @@ with TABS[3]:
 
     # ── Header row ────────────────────────────────────────────────────────────
     bl, bc, bg = rb(P[20])
+    if _empty:
+        _pill_html = (
+            f'<div class="parvis-node20-pill" '
+            f'style="background:#FBFAF7;color:#9E9E9E;'
+            f'border:1px solid #E0DDD6;font-family:Fraunces,Georgia,serif;'
+            f'font-style:italic;font-weight:500">'
+            f'Node 20 &nbsp;—&nbsp; Awaiting case data'
+            f'</div>'
+        )
+    else:
+        _pill_html = (
+            f'<div class="parvis-node20-pill" '
+            f'style="background:{bg};color:{bc};border:1px solid {bc}44">'
+            f'Node 20 &nbsp;{P[20]*100:.1f}% &nbsp;{bl}'
+            f'</div>'
+        )
     st.markdown(f"""
 <div class="parvis-chat-header">
   <div>
     <div class="parvis-chat-title">💬 Intake (Chat)</div>
     <div class="parvis-chat-subtitle">Context-aware · {len(st.session_state.chat_history)//2} exchange(s) · Bayesian network live</div>
   </div>
-  <div class="parvis-node20-pill" style="background:{bg};color:{bc};border:1px solid {bc}44">
-    Node 20 &nbsp;{P[20]*100:.1f}% &nbsp;{bl}
-  </div>
+  {_pill_html}
 </div>""", unsafe_allow_html=True)
 
     # ── API settings (compact bar) ────────────────────────────────────────────
@@ -3553,7 +3670,24 @@ IMPORTANT: You model DESIGNATION RISK, not intrinsic dangerousness. Always maint
     if not st.session_state.chat_history:
         with st.chat_message("assistant", avatar="🔺"):
             bl_w, bc_w, _ = rb(P[20])
-            st.markdown(f"""
+            if _empty:
+                st.markdown("""
+**Hello. I'm PARVIS.**
+
+The network is initialised but no case data has been entered yet. As you provide information about the case, I'll update the posterior in real time.
+
+You can describe a case in plain language and I'll propose values across the network, or ask me to explain any node, doctrinal principle, or risk factor. Nothing changes until you confirm each suggestion.
+
+To get started, try something like:
+
+> *"The offender is 42, Indigenous, from Northern Manitoba. Bail denied for 9 months, PCL-R score 22, no Gladue report commissioned."*
+
+Or ask a question:
+
+> *"What does Node 7 (bail-denial cascade) encode and how does it shift the posterior?"*
+                """)
+            else:
+                st.markdown(f"""
 **Hello. I'm PARVIS.**
 
 The network is live — Node 20 is currently at **{P[20]*100:.1f}% ({bl_w})**.
@@ -3567,7 +3701,7 @@ To get started, try something like:
 Or ask a question:
 
 > *"Why is Node 7 elevated and what does that mean for the DO risk?"*
-            """)
+                """)
 
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"],
@@ -4744,21 +4878,38 @@ with TABS[4]:
         "Elevated": f"belief shifted · {_n_conv} conviction(s)",
         "High":     f"strong indication · {_n_conv} conviction(s)",
     }.get(bl_cr, bl_cr)
-    st.markdown(
-        f"<div style='display:grid;grid-template-columns:1fr auto;"
-        f"align-items:center;gap:18px;background:linear-gradient(90deg,"
-        f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
-        f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
-        f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
-        f"Node 20 · DO designation risk"
-        f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
-        f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
-        f"</div>"
-        f"<div style='font-family:Fraunces,serif;font-style:italic;"
-        f"font-size:0.86rem;color:#2F5C2A'>{bl_cr} — {_band_text_cr}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if _empty:
+        st.markdown(
+            "<div style='display:grid;grid-template-columns:1fr auto;"
+            "align-items:center;gap:18px;background:#FBFAF7;"
+            "border:1px solid #E0DDD6;border-radius:8px;"
+            "padding:11px 18px;margin-top:24px;margin-bottom:0'>"
+            "<div style='font-size:0.82rem;color:#9E9E9E;font-weight:500'>"
+            "Node 20 · DO designation risk"
+            "<span style='font-family:Fraunces,Georgia,serif;font-style:italic;"
+            "font-size:1.05rem;font-weight:500;color:#9E9E9E;margin-left:10px'>—</span>"
+            "</div>"
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#707070'>Awaiting case data</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='display:grid;grid-template-columns:1fr auto;"
+            f"align-items:center;gap:18px;background:linear-gradient(90deg,"
+            f"#E2EBD8 0%, #EAF3DE 50%, #F7F5F2 100%);border:1px solid #B8CDA8;"
+            f"border-radius:8px;padding:11px 18px;margin-top:24px'>"
+            f"<div style='font-size:0.82rem;color:#3B6D11;font-weight:500'>"
+            f"Node 20 · DO designation risk"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+            f"font-weight:600;color:#2F5C2A;margin-left:8px'>{P[20]*100:.1f}%</span>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.86rem;color:#2F5C2A'>{bl_cr} — {_band_text_cr}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ── T10: Scenarios — side-by-side comparison ─────────────────────────────────
