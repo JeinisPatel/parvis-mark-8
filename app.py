@@ -981,26 +981,53 @@ with TABS[0]:
     _case_jur  = (st.session_state.get("case_jur") or "").strip()
 
     # ── Zone 1: Headline ─────────────────────────────────────────────────────
+    # Empty-state: "No case loaded" + navigation guidance.
+    # Populated: existing "Untitled case" title block + designation-risk body.
+    if _empty:
+        _headline_left = (
+            "<div>"
+            "<div style=\"font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:2rem;"
+            "letter-spacing:-0.01em;color:#1a1a1a;line-height:1.15\">"
+            "No case loaded"
+            "</div>"
+            "<div style=\"font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:0.95rem;"
+            "color:#888;margin:6px 0 14px 0\">"
+            "Awaiting case data — sentencing audit · PARVIS Bayesian network"
+            "</div>"
+            "<div style=\"font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:0.92rem;"
+            "color:#3a3a3a;line-height:1.65;max-width:620px\">"
+            "Begin at <strong style=\"font-style:normal;color:#1a1a1a\">Profile</strong> "
+            "to enter case profile information, or inspect "
+            "<strong style=\"font-style:normal;color:#1a1a1a\">Architecture</strong> "
+            "for a structural overview without entering a case."
+            "</div>"
+            "</div>"
+        )
+    else:
+        _headline_left = (
+            f"<div>"
+            f"<div style=\"font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:2rem;"
+            f"letter-spacing:-0.01em;color:#1a1a1a;line-height:1.15\">"
+            f"{_case_id}"
+            f"</div>"
+            f"<div style=\"font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:0.95rem;"
+            f"color:#888;margin:6px 0 14px 0\">"
+            f"{(_case_jur + ' · ') if _case_jur else ''}Sentencing audit · PARVIS Bayesian network"
+            f"</div>"
+            f"<div style=\"font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:0.92rem;"
+            f"color:#3a3a3a;line-height:1.65;max-width:620px\">"
+            f"Posterior probability of Dangerous Offender designation given current evidence, "
+            f"doctrinal corrections, and systemic distortion adjustments. Models DESIGNATION "
+            f"RISK — not intrinsic dangerousness."
+            f"</div>"
+            f"</div>"
+        )
+
     st.markdown(f"""
     <div style="display:grid;grid-template-columns:1fr 280px;gap:32px;align-items:center;
                 padding:24px 0 28px 0;border-bottom:1px solid rgba(0,0,0,.06);
                 margin-bottom:24px">
-      <div>
-        <div style="font-family:'Fraunces',Georgia,serif;font-weight:500;font-size:2rem;
-                    letter-spacing:-0.01em;color:#1a1a1a;line-height:1.15">
-          {_case_id}
-        </div>
-        <div style="font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:0.95rem;
-                    color:#888;margin:6px 0 14px 0">
-          {(_case_jur + ' · ') if _case_jur else ''}Sentencing audit · PARVIS Bayesian network
-        </div>
-        <div style="font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:0.92rem;
-                    color:#3a3a3a;line-height:1.65;max-width:620px">
-          Posterior probability of Dangerous Offender designation given current evidence,
-          doctrinal corrections, and systemic distortion adjustments. Models DESIGNATION
-          RISK — not intrinsic dangerousness.
-        </div>
-      </div>
+      {_headline_left}
       {("<div style=\"background:#FBFAF7;border:1px solid #E0DDD6;border-radius:14px;padding:18px 22px;text-align:center\">"
         "<div style=\"font-size:0.66rem;text-transform:uppercase;letter-spacing:0.14em;color:#9E9E9E;font-weight:700;margin-bottom:6px\">"
         "DO Designation Risk</div>"
@@ -1018,6 +1045,128 @@ with TABS[0]:
         "</div>")}
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Empty-state landing: About + How to read (Apr 27 2026) ─────────────
+    # Renders only in the empty state, between the headline and the Doctrinal
+    # architecture section. Provides examiner-facing orientation per JP's
+    # spec. Once case data is entered, these blocks disappear.
+    if _empty:
+        # ── About this implementation ────────────────────────────────────
+        st.markdown(
+            "<h2 style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+            "font-size:1.45rem;letter-spacing:-0.005em;color:#1a1a1a;"
+            "margin:36px 0 14px 0;line-height:1.25'>"
+            "About this implementation"
+            "</h2>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:20px'>"
+            "PARVIS is a reference implementation of the twenty-node Bayesian "
+            "audit architecture set out in Chapter 5 of the underlying thesis. "
+            "The architecture's purpose is to render the inferential structure "
+            "of Canadian sentencing — particularly the structure required by "
+            "<em>Gladue</em>, <em>Ipeelee</em>, <em>Morris</em>, and <em>Ewert</em> "
+            "— auditable, reconstructable, and contestable. It does so by "
+            "representing both substantive risk considerations and the "
+            "systemic distortions that shape how risk is constructed in the "
+            "evidentiary record."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:20px'>"
+            "Three constitutive constraints govern what this implementation "
+            "does and does not do, drawn from <em>Appendix O §O.1.1</em> "
+            "of the thesis. First, PARVIS is an audit mechanism, not a "
+            "decision-maker. It models whether legally required belief "
+            "revision has occurred; it does not produce sentencing outcomes "
+            "or recommend designations. Second, the outputs displayed here "
+            "are diagnostic observations about reasoning, not adjudicative "
+            "facts. They belong in the domain of audit and contestation, "
+            "not the evidentiary record of any particular proceeding. Third, "
+            "the architecture is open by design — its node structure, "
+            "conditional dependencies, and prior values are matters of "
+            "public legal reasoning, contestable by adversarial parties."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:32px'>"
+            "The values shown throughout the implementation are research-"
+            "prototype values. They serve as illustrative anchors for the "
+            "framework set out in the thesis text and are subject to expert "
+            "elicitation through the SHELF/Cooke methodology described in "
+            "<em>Appendix O §O.3</em> before any deployment could responsibly "
+            "occur. The constructive proof presented here is a demonstration "
+            "that the architecture <em>can</em> be built consistent with its "
+            "doctrinal commitments, not a claim that it is ready for "
+            "institutional use."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Light horizontal rule for visual rhythm
+        st.markdown(
+            "<div style='border-top:1px solid #E0DDD6;margin:8px 0 24px 0;"
+            "max-width:720px'></div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── How to read this ─────────────────────────────────────────────
+        st.markdown(
+            "<h2 style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+            "font-size:1.45rem;letter-spacing:-0.005em;color:#1a1a1a;"
+            "margin:0 0 14px 0;line-height:1.25'>"
+            "How to read this"
+            "</h2>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:20px'>"
+            "The architecture comprises three substantive layers and one "
+            "cross-cutting diagnostic layer. The <em>Substantive Risk Layer</em> "
+            "(Nodes 1–4) represents empirically supported risk indicators "
+            "subject to Canadian burdens of proof and proportionality "
+            "constraints. The <em>Systemic Distortion and Doctrinal Fidelity "
+            "Layer</em> (Nodes 5–17) captures mechanisms through which "
+            "criminal records and risk assessments become unreliable, "
+            "qualifying — never displacing — the confidence placed in "
+            "upstream evidence. The <em>Structural Calibration and Output "
+            "Layer</em> (Nodes 18–20) governs how revised beliefs propagate "
+            "downstream to the Dangerous Offender designation posterior at "
+            "Node 20. The cross-cutting <em>Quantum diagnostic layer</em> "
+            "(Appendix Q) surfaces epistemic conditions — order effects, "
+            "contextuality, premature scalar collapse, distorted priors — "
+            "that classical Bayesian inference is poorly equipped to "
+            "represent."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:36px'>"
+            "The natural starting point is the "
+            "<strong style='font-style:normal;color:#1a1a1a'>Profile</strong> "
+            "tab. <strong style='font-style:normal;color:#1a1a1a'>Architecture"
+            "</strong> offers a structural overview without requiring case "
+            "data. <strong style='font-style:normal;color:#1a1a1a'>Inference"
+            "</strong> displays the live posterior distribution once data has "
+            "been entered."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Light horizontal rule before the Doctrinal architecture deep-cut
+        st.markdown(
+            "<div style='border-top:1px solid #E0DDD6;margin:8px 0 24px 0;"
+            "max-width:720px'></div>",
+            unsafe_allow_html=True,
+        )
 
     # ── Zone 2a: Doctrinal architecture (N1, N17 — structural constraints) ─────
     # Surfaced separately from the case-responsive drivers below per Chapter 5's
