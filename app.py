@@ -1051,120 +1051,119 @@ with TABS[0]:
     # architecture section. Provides examiner-facing orientation per JP's
     # spec. Once case data is entered, these blocks disappear.
     if _empty:
-        # ── About this implementation ────────────────────────────────────
-        st.markdown(
-            "<h2 style='font-family:Fraunces,Georgia,serif;font-weight:500;"
-            "font-size:1.45rem;letter-spacing:-0.005em;color:#1a1a1a;"
-            "margin:36px 0 14px 0;line-height:1.25'>"
-            "About this implementation"
-            "</h2>",
-            unsafe_allow_html=True,
+        # Side-by-side two-column layout (Apr 27 2026):
+        # Left  — About this implementation (3 paragraphs)
+        # Right — How to read this (2 paragraphs)
+        # Both expanded by default; column gap provides visual separation.
+        st.markdown("<div style='margin-top:36px'></div>", unsafe_allow_html=True)
+        _land_left, _land_gap, _land_right = st.columns([1, 0.05, 1])
+
+        # Shared style constants for column body text
+        _LAND_BODY_STYLE = (
+            "font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "color:#3a3a3a;line-height:1.75;margin-bottom:18px"
         )
-        st.markdown(
-            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
-            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:20px'>"
-            "PARVIS is a reference implementation of the twenty-node Bayesian "
-            "audit architecture set out in Chapter 5 of the underlying thesis. "
-            "The architecture's purpose is to render the inferential structure "
-            "of Canadian sentencing — particularly the structure required by "
-            "<em>Gladue</em>, <em>Ipeelee</em>, <em>Morris</em>, and <em>Ewert</em> "
-            "— auditable, reconstructable, and contestable. It does so by "
-            "representing both substantive risk considerations and the "
-            "systemic distortions that shape how risk is constructed in the "
-            "evidentiary record."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
-            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:20px'>"
-            "Three constitutive constraints govern what this implementation "
-            "does and does not do, drawn from <em>Appendix O §O.1.1</em> "
-            "of the thesis. First, PARVIS is an audit mechanism, not a "
-            "decision-maker. It models whether legally required belief "
-            "revision has occurred; it does not produce sentencing outcomes "
-            "or recommend designations. Second, the outputs displayed here "
-            "are diagnostic observations about reasoning, not adjudicative "
-            "facts. They belong in the domain of audit and contestation, "
-            "not the evidentiary record of any particular proceeding. Third, "
-            "the architecture is open by design — its node structure, "
-            "conditional dependencies, and prior values are matters of "
-            "public legal reasoning, contestable by adversarial parties."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
-            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:32px'>"
-            "The values shown throughout the implementation are research-"
-            "prototype values. They serve as illustrative anchors for the "
-            "framework set out in the thesis text and are subject to expert "
-            "elicitation through the SHELF/Cooke methodology described in "
-            "<em>Appendix O §O.3</em> before any deployment could responsibly "
-            "occur. The constructive proof presented here is a demonstration "
-            "that the architecture <em>can</em> be built consistent with its "
-            "doctrinal commitments, not a claim that it is ready for "
-            "institutional use."
-            "</div>",
-            unsafe_allow_html=True,
+        _LAND_HEAD_STYLE = (
+            "font-family:Fraunces,Georgia,serif;font-weight:500;"
+            "font-size:1.4rem;letter-spacing:-0.005em;color:#1a1a1a;"
+            "margin:0 0 14px 0;line-height:1.25"
         )
 
-        # Light horizontal rule for visual rhythm
-        st.markdown(
-            "<div style='border-top:1px solid #E0DDD6;margin:8px 0 24px 0;"
-            "max-width:720px'></div>",
-            unsafe_allow_html=True,
-        )
+        # ── Left column — About this implementation ───────────────────────
+        with _land_left:
+            st.markdown(
+                f"<h2 style='{_LAND_HEAD_STYLE}'>About this implementation</h2>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='{_LAND_BODY_STYLE}'>"
+                "PARVIS is a reference implementation of the twenty-node Bayesian "
+                "audit architecture set out in Chapter 5 of the underlying thesis. "
+                "The architecture's purpose is to render the inferential structure "
+                "of Canadian sentencing — particularly the structure required by "
+                "<em>Gladue</em>, <em>Ipeelee</em>, <em>Morris</em>, and <em>Ewert</em> "
+                "— auditable, reconstructable, and contestable. It does so by "
+                "representing both substantive risk considerations and the "
+                "systemic distortions that shape how risk is constructed in the "
+                "evidentiary record."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='{_LAND_BODY_STYLE}'>"
+                "Three constitutive constraints govern what this implementation "
+                "does and does not do, drawn from <em>Appendix O §O.1.1</em> "
+                "of the thesis. First, PARVIS is an audit mechanism, not a "
+                "decision-maker. It models whether legally required belief "
+                "revision has occurred; it does not produce sentencing outcomes "
+                "or recommend designations. Second, the outputs displayed here "
+                "are diagnostic observations about reasoning, not adjudicative "
+                "facts. They belong in the domain of audit and contestation, "
+                "not the evidentiary record of any particular proceeding. Third, "
+                "the architecture is open by design — its node structure, "
+                "conditional dependencies, and prior values are matters of "
+                "public legal reasoning, contestable by adversarial parties."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='{_LAND_BODY_STYLE}'>"
+                "The values shown throughout the implementation are research-"
+                "prototype values. They serve as illustrative anchors for the "
+                "framework set out in the thesis text and are subject to expert "
+                "elicitation through the SHELF/Cooke methodology described in "
+                "<em>Appendix O §O.3</em> before any deployment could responsibly "
+                "occur. The constructive proof presented here is a demonstration "
+                "that the architecture <em>can</em> be built consistent with its "
+                "doctrinal commitments, not a claim that it is ready for "
+                "institutional use."
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
-        # ── How to read this ─────────────────────────────────────────────
-        st.markdown(
-            "<h2 style='font-family:Fraunces,Georgia,serif;font-weight:500;"
-            "font-size:1.45rem;letter-spacing:-0.005em;color:#1a1a1a;"
-            "margin:0 0 14px 0;line-height:1.25'>"
-            "How to read this"
-            "</h2>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
-            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:20px'>"
-            "The architecture comprises three substantive layers and one "
-            "cross-cutting diagnostic layer. The <em>Substantive Risk Layer</em> "
-            "(Nodes 1–4) represents empirically supported risk indicators "
-            "subject to Canadian burdens of proof and proportionality "
-            "constraints. The <em>Systemic Distortion and Doctrinal Fidelity "
-            "Layer</em> (Nodes 5–17) captures mechanisms through which "
-            "criminal records and risk assessments become unreliable, "
-            "qualifying — never displacing — the confidence placed in "
-            "upstream evidence. The <em>Structural Calibration and Output "
-            "Layer</em> (Nodes 18–20) governs how revised beliefs propagate "
-            "downstream to the Dangerous Offender designation posterior at "
-            "Node 20. The cross-cutting <em>Quantum diagnostic layer</em> "
-            "(Appendix Q) surfaces epistemic conditions — order effects, "
-            "contextuality, premature scalar collapse, distorted priors — "
-            "that classical Bayesian inference is poorly equipped to "
-            "represent."
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
-            "color:#3a3a3a;line-height:1.75;max-width:720px;margin-bottom:36px'>"
-            "The natural starting point is the "
-            "<strong style='font-style:normal;color:#1a1a1a'>Profile</strong> "
-            "tab. <strong style='font-style:normal;color:#1a1a1a'>Architecture"
-            "</strong> offers a structural overview without requiring case "
-            "data. <strong style='font-style:normal;color:#1a1a1a'>Inference"
-            "</strong> displays the live posterior distribution once data has "
-            "been entered."
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        # ── Right column — How to read this ───────────────────────────────
+        with _land_right:
+            st.markdown(
+                f"<h2 style='{_LAND_HEAD_STYLE}'>How to read this</h2>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='{_LAND_BODY_STYLE}'>"
+                "The architecture comprises three substantive layers and one "
+                "cross-cutting diagnostic layer. The <em>Substantive Risk Layer</em> "
+                "(Nodes 1–4) represents empirically supported risk indicators "
+                "subject to Canadian burdens of proof and proportionality "
+                "constraints. The <em>Systemic Distortion and Doctrinal Fidelity "
+                "Layer</em> (Nodes 5–17) captures mechanisms through which "
+                "criminal records and risk assessments become unreliable, "
+                "qualifying — never displacing — the confidence placed in "
+                "upstream evidence. The <em>Structural Calibration and Output "
+                "Layer</em> (Nodes 18–20) governs how revised beliefs propagate "
+                "downstream to the Dangerous Offender designation posterior at "
+                "Node 20. The cross-cutting <em>Quantum diagnostic layer</em> "
+                "(Appendix Q) surfaces epistemic conditions — order effects, "
+                "contextuality, premature scalar collapse, distorted priors — "
+                "that classical Bayesian inference is poorly equipped to "
+                "represent."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='{_LAND_BODY_STYLE}'>"
+                "The natural starting point is the "
+                "<strong style='font-style:normal;color:#1a1a1a'>Profile</strong> "
+                "tab. <strong style='font-style:normal;color:#1a1a1a'>Architecture"
+                "</strong> offers a structural overview without requiring case "
+                "data. <strong style='font-style:normal;color:#1a1a1a'>Inference"
+                "</strong> displays the live posterior distribution once data has "
+                "been entered."
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
-        # Light horizontal rule before the Doctrinal architecture deep-cut
+        # Horizontal rule before the Doctrinal architecture deep-cut
         st.markdown(
-            "<div style='border-top:1px solid #E0DDD6;margin:8px 0 24px 0;"
-            "max-width:720px'></div>",
+            "<div style='border-top:1px solid #E0DDD6;margin:32px 0 24px 0'></div>",
             unsafe_allow_html=True,
         )
 
