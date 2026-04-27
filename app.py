@@ -762,7 +762,19 @@ TABS=st.tabs(["📋 Summary","🕸️ Architecture","📋 Profile","💬 Intake 
 # ── T0: Summary (Mark 8) ──────────────────────────────────────────────────────
 with TABS[0]:
     _band_lbl, _band_fg, _band_bg = _summary_band(P[20])
-    _drv_up, _drv_dn = _top_drivers(P, k=5)
+    _drv_up_raw, _drv_dn_raw = _top_drivers(P, k=8)
+    # ── Doctrinal architecture: N1 (structural control) and N17 (properly-weighted-conditional) ──
+    # Per Chapter 5: these nodes encode meta-constraints rather than case-specific drivers.
+    # They are surfaced separately so the drivers panel below shows only case-responsive nodes.
+    _struct_nodes = {1, 17}  # node IDs treated as structural in the Summary panel
+    _drv_up = [d for d in _drv_up_raw if d["nid"] not in _struct_nodes][:5]
+    _drv_dn = [d for d in _drv_dn_raw if d["nid"] not in _struct_nodes][:5]
+    _struct_drivers = []
+    for d in _drv_up_raw + _drv_dn_raw:
+        if d["nid"] in _struct_nodes and d not in _struct_drivers:
+            _struct_drivers.append(d)
+    # Sort structural by node id for a stable display order (N1 first, then N17)
+    _struct_drivers.sort(key=lambda d: d["nid"])
     _comp = _completeness_state()
     _doc = _doctrinal_frame()
     _case_id   = (st.session_state.get("case_id") or "").strip() or "Untitled case"
@@ -807,12 +819,118 @@ with TABS[0]:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Zone 2a: Doctrinal architecture (N1, N17 — structural constraints) ─────
+    # Surfaced separately from the case-responsive drivers below per Chapter 5's
+    # treatment of N1 as a structural control / shared parent node.
+    st.markdown(
+        "<h3 style='margin-bottom:4px'>Doctrinal architecture</h3>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.86rem;color:#707070;margin-bottom:14px;line-height:1.55;"
+        "max-width:720px'>"
+        "Structural constraints conditioning the entire inference. "
+        "These nodes encode the evidentiary architecture of Canadian sentencing "
+        "law and the post-admission inferential structure — they remain "
+        "stable across case-specific evidence rather than responding to it."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Render the two structural nodes side-by-side
+    if _struct_drivers:
+        _struct_cols = st.columns(len(_struct_drivers))
+        for _idx, _d in enumerate(_struct_drivers):
+            with _struct_cols[_idx]:
+                # Use a stable amber/blue accent regardless of node type colour
+                _accent = "#BA7517" if _d["nid"] == 1 else "#185FA5"
+                _accent_bg = "#FAEEDA" if _d["nid"] == 1 else "#E8F0FA"
+                _accent_border = "#E5CC95" if _d["nid"] == 1 else "#C7D3E5"
+                # Surface caption depends on node identity
+                if _d["nid"] == 1:
+                    _surface = (
+                        "Encodes the evidentiary admissibility thresholds — "
+                        "Crown beyond reasonable doubt for aggravating evidence "
+                        "(~83%), defence balance of probabilities for mitigating "
+                        "(~51%). Functions as a structural meta-constraint "
+                        "conditioning all other inference, not as a posterior "
+                        "over case facts."
+                    )
+                    _expand_label = "Formal treatment — Chapter 5 §1"
+                    _formal = (
+                        "Per Chapter 5, N1 operates as a shared parent node "
+                        "whose states deterministically condition the CPT "
+                        "entries of downstream aggravation and mitigation "
+                        "nodes — collapsing likelihood terms to near-zero when "
+                        "evidentiary burdens are unmet. This is the limiting "
+                        "case of Bayesian conditional probability where the "
+                        "conditional collapses to certainty. Deterministic "
+                        "conditioning of this kind is orthodox within Bayesian "
+                        "network methodology. The node's posterior remains "
+                        "stable across case-specific evidence because it "
+                        "represents a precondition on belief revision rather "
+                        "than a variable within it. Law does not work in "
+                        "percentages; the values shown are best-available "
+                        "industry estimates of these doctrinal thresholds."
+                    )
+                else:  # N17
+                    _surface = (
+                        "Responds to admitted evidence but assumes the "
+                        "evidentiary admissibility gate (N1) has been correctly "
+                        "applied. Reflects the post-gate inferential structure "
+                        "in which conflicting evidence is properly weighed."
+                    )
+                    _expand_label = "Doctrinal scope of N17"
+                    _formal = (
+                        "N17 is a properly-weighted-conditional node: its "
+                        "posterior responds to evidence once admitted, but the "
+                        "responsiveness assumes that the weighting prior to "
+                        "admission has been correctly rendered by the "
+                        "sentencing judge. The judge's gatekeeping role under "
+                        "N1 is logically prior to any update at N17. If "
+                        "admissibility has been mishandled — evidence admitted "
+                        "that should not have been, or excluded that should "
+                        "have been — N17 is computing on a corrupted basis."
+                    )
+                # Card
+                st.markdown(
+                    f"<div style='background:{_accent_bg};border:1px solid {_accent_border};"
+                    f"border-left:3px solid {_accent};border-radius:8px;padding:14px 18px;"
+                    f"margin-bottom:10px'>"
+                    f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:8px'>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:0.78rem;"
+                    f"font-weight:600;padding:3px 9px;border-radius:5px;color:white;"
+                    f"background:{_accent}'>N{_d['nid']}</div>"
+                    f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.05rem;"
+                    f"font-weight:500;color:#1a1a1a'>{_d['short']}</div>"
+                    f"<div style='margin-left:auto;font-family:JetBrains Mono,monospace;"
+                    f"font-size:0.95rem;font-weight:600;color:{_accent}'>{_d['p']*100:.1f}%</div>"
+                    f"</div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:0.84rem;color:#3a3a3a;line-height:1.55'>{_surface}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                with st.expander(_expand_label, expanded=False):
+                    st.markdown(
+                        f"<div style='font-family:Fraunces,serif;font-size:0.86rem;"
+                        f"color:#3a3a3a;line-height:1.65;padding:4px 0'>{_formal}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+    st.markdown(
+        "<div style='border-top:1px solid #EFEDE7;margin:24px 0 18px 0'></div>",
+        unsafe_allow_html=True,
+    )
+
     # ── Zone 2: Drivers ──────────────────────────────────────────────────────
     st.markdown("### Drivers of the posterior")
     st.caption("Top 5 nodes pushing DO risk up, top 5 pulling it down. "
-               "Increasing-side: risk and constraint nodes ranked by posterior. "
-               "Decreasing-side: mitigations, systemic distortion corrections, "
-               "and causal detectors.")
+               "Case-responsive nodes only — structural constraints (N1, N17) "
+               "shown separately above. Increasing-side: risk and constraint "
+               "nodes ranked by posterior. Decreasing-side: mitigations, "
+               "systemic distortion corrections, and causal detectors.")
 
     def _driver_html(d, direction):
         arrow_color = "#A32D2D" if direction == "up" else "#3B6D11"
