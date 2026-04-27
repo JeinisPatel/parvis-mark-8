@@ -651,6 +651,29 @@ run_inf()
 P=st.session_state.posteriors
 dp=P[20]; bl,bc,bg=rb(dp)
 
+# ── Empty-state detection ─────────────────────────────────────────────────────
+# When no case data has been entered, the posterior reflects the network's
+# defaults rather than any case-specific evidence. Show "Awaiting case data"
+# in posterior displays so a user does not misread the default as a claim
+# about the empty (Untitled) case.
+def _case_is_empty():
+    """Return True if no case data has been entered across any input tab."""
+    ss = st.session_state
+    if (ss.get("case_id") or "").strip():
+        return False
+    if ss.get("criminal_record"):
+        return False
+    if ss.get("gladue_checked"):
+        return False
+    sce_vals = ss.get("sce_values") or {}
+    if any(v > 0.01 for v in sce_vals.values()):
+        return False
+    if ss.get("manual_ev"):
+        return False
+    return True
+
+_empty = _case_is_empty()
+
 # ── Header ────────────────────────────────────────────────────────────────────
 ct,cd=st.columns([3,1])
 with ct:
@@ -669,10 +692,17 @@ with ct:
     <span style="color:#A32D2D;font-weight:500">Jeinis Patel, PhD Candidate and Barrister</span>
     &nbsp;·&nbsp; &#169; 2026 Jeinis Patel</div></div>""",unsafe_allow_html=True)
 with cd:
-    st.markdown(f"""<div class="dc" style="background:{bg};border:1px solid {bc}44;margin-top:4px">
-    <div class="dl" style="color:{bc}">Node 20 · DO risk</div>
-    <div class="dp" style="color:{bc}">{dp*100:.1f}%</div>
-    <div class="db" style="color:{bc}">{bl}</div></div>""",unsafe_allow_html=True)
+    if _empty:
+        # Empty-state header chip: muted register, no percentage
+        st.markdown(f"""<div class="dc" style="background:#FBFAF7;border:1px solid #E0DDD6;margin-top:4px">
+        <div class="dl" style="color:#9E9E9E">Node 20 · DO risk</div>
+        <div class="dp" style="color:#9E9E9E;font-family:Fraunces,Georgia,serif;font-style:italic;font-size:1.5rem;font-weight:500">—</div>
+        <div class="db" style="color:#707070;font-family:Fraunces,serif;font-style:italic;font-size:0.84rem">Awaiting case data</div></div>""",unsafe_allow_html=True)
+    else:
+        st.markdown(f"""<div class="dc" style="background:{bg};border:1px solid {bc}44;margin-top:4px">
+        <div class="dl" style="color:{bc}">Node 20 · DO risk</div>
+        <div class="dp" style="color:{bc}">{dp*100:.1f}%</div>
+        <div class="db" style="color:{bc}">{bl}</div></div>""",unsafe_allow_html=True)
 
 st.markdown("<br>",unsafe_allow_html=True)
 
@@ -759,25 +789,21 @@ with TABS[0]:
           RISK — not intrinsic dangerousness.
         </div>
       </div>
-      <div style="background:{_band_bg};border:1px solid {_band_fg}33;border-radius:14px;
-                  padding:18px 22px;text-align:center">
-        <div style="font-size:0.66rem;text-transform:uppercase;letter-spacing:0.14em;
-                    color:{_band_fg};font-weight:700;margin-bottom:6px">
-          DO Designation Risk
-        </div>
-        <div style="font-family:monospace;font-size:3rem;font-weight:600;color:{_band_fg};
-                    line-height:1">
-          {P[20]*100:.1f}<span style="font-size:1.4rem;opacity:0.7">%</span>
-        </div>
-        <div style="font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:1rem;
-                    color:{_band_fg};margin-top:4px">
-          {_band_lbl}
-        </div>
-        <div style="font-size:0.68rem;color:{_band_fg};opacity:0.78;margin-top:8px;
-                    line-height:1.4">
-          pgmpy Variable Elimination · Tetrad-bound
-        </div>
-      </div>
+      {("<div style=\"background:#FBFAF7;border:1px solid #E0DDD6;border-radius:14px;padding:18px 22px;text-align:center\">"
+        "<div style=\"font-size:0.66rem;text-transform:uppercase;letter-spacing:0.14em;color:#9E9E9E;font-weight:700;margin-bottom:6px\">"
+        "DO Designation Risk</div>"
+        "<div style=\"font-family:Fraunces,Georgia,serif;font-style:italic;font-size:2.6rem;font-weight:500;color:#9E9E9E;line-height:1;margin:8px 0 4px 0\">—</div>"
+        "<div style=\"font-family:Fraunces,Georgia,serif;font-style:italic;font-size:0.95rem;color:#707070;margin-top:6px\">Awaiting case data</div>"
+        "<div style=\"font-size:0.68rem;color:#9E9E9E;opacity:0.85;margin-top:10px;line-height:1.4\">Enter case profile, criminal record, or Gladue / SCE evidence to begin.</div>"
+        "</div>") if _empty else (
+        f"<div style=\"background:{_band_bg};border:1px solid {_band_fg}33;border-radius:14px;padding:18px 22px;text-align:center\">"
+        f"<div style=\"font-size:0.66rem;text-transform:uppercase;letter-spacing:0.14em;color:{_band_fg};font-weight:700;margin-bottom:6px\">"
+        "DO Designation Risk</div>"
+        f"<div style=\"font-family:monospace;font-size:3rem;font-weight:600;color:{_band_fg};line-height:1\">"
+        f"{P[20]*100:.1f}<span style=\"font-size:1.4rem;opacity:0.7\">%</span></div>"
+        f"<div style=\"font-family:'Fraunces',Georgia,serif;font-style:italic;font-size:1rem;color:{_band_fg};margin-top:4px\">{_band_lbl}</div>"
+        f"<div style=\"font-size:0.68rem;color:{_band_fg};opacity:0.78;margin-top:8px;line-height:1.4\">pgmpy Variable Elimination · Tetrad-bound</div>"
+        "</div>")}
     </div>
     """, unsafe_allow_html=True)
 
