@@ -4101,11 +4101,15 @@ details.parvis-doc > .parvis-doc-body em { font-style: italic; }
 </div>
 </details>''', unsafe_allow_html=True)
 
-    # API availability check
-    if not CANLII_ON or not canlii_ok():
+    # ── CanLII activation status (April 27 2026 gating fix) ──────────────
+    # The architecture below renders regardless of CanLII activation. Only
+    # the action buttons (and result rendering) are gated on `_canlii_active`.
+    # Status banner shows so the user understands which buttons will work.
+    _canlii_active = bool(CANLII_ON and canlii_ok())
+    if not _canlii_active:
         st.markdown(
-            "<div style='background:#FAEEDA;border:1px solid #BA751733;border-radius:8px;padding:12px 16px'>"
-            "<b>CanLII not yet active.</b> To enable live case law:<br>"
+            "<div style='background:#FAEEDA;border:1px solid #BA751733;border-radius:8px;padding:12px 16px;margin:8px 0 16px 0'>"
+            "<b>CanLII not yet active.</b> The architecture below is fully built; live queries activate when an API key is configured.<br>"
             "1. Register free at <a href='https://api.canlii.org' target='_blank'>api.canlii.org</a><br>"
             "2. Add <code>CANLII_API_KEY = your-key</code> to Streamlit secrets<br>"
             "3. Redeploy — surface activates automatically.</div>",
@@ -4117,241 +4121,248 @@ details.parvis-doc > .parvis-doc-body em { font-style: italic; }
             if not _validity.get("valid"):
                 st.warning(f"⚠️ CanLII API key configured but probe failed: {_validity.get('error','unknown error')}. "
                            f"Key may be invalid, expired, or rate-limited.")
+                _canlii_active = False  # Treat as not-active for button gating
         except Exception:
             pass  # Fail silently; live queries will surface real errors
 
-        # ── Global filters (jurisdiction + date floor) ────────────────────
-        # Jurisdiction defaults to whatever the user already entered for
-        # the document (doc_prov), or "*" (all results uniformly tagged)
-        # if no document jurisdiction has been set.
-        _doc_prov_raw = st.session_state.get("doc_prov", "Auto-detect")
-        _default_jur_code = "*" if _doc_prov_raw == "Auto-detect" else _doc_prov_raw.split(" — ")[0]
-        _jur_options = ["* — All results uniformly tagged",
-                        "ON — Ontario", "BC — British Columbia", "AB — Alberta",
-                        "QC — Quebec", "SK — Saskatchewan", "MB — Manitoba",
-                        "NS — Nova Scotia", "NB — New Brunswick",
-                        "NL — Newfoundland and Labrador", "PE — Prince Edward Island",
-                        "YT — Yukon", "NT — Northwest Territories", "NU — Nunavut"]
-        _default_idx = 0
-        for _i, _opt in enumerate(_jur_options):
-            if _opt.startswith(_default_jur_code + " "):
-                _default_idx = _i
-                break
+    # ── Global filters (jurisdiction + date floor) ────────────────────────
+    # Jurisdiction defaults to whatever the user already entered for
+    # the document (doc_prov), or "*" (all results uniformly tagged)
+    # if no document jurisdiction has been set.
+    _doc_prov_raw = st.session_state.get("doc_prov", "Auto-detect")
+    _default_jur_code = "*" if _doc_prov_raw == "Auto-detect" else _doc_prov_raw.split(" — ")[0]
+    _jur_options = ["* — All results uniformly tagged",
+                    "ON — Ontario", "BC — British Columbia", "AB — Alberta",
+                    "QC — Quebec", "SK — Saskatchewan", "MB — Manitoba",
+                    "NS — Nova Scotia", "NB — New Brunswick",
+                    "NL — Newfoundland and Labrador", "PE — Prince Edward Island",
+                    "YT — Yukon", "NT — Northwest Territories", "NU — Nunavut"]
+    _default_idx = 0
+    for _i, _opt in enumerate(_jur_options):
+        if _opt.startswith(_default_jur_code + " "):
+            _default_idx = _i
+            break
 
-        col_jur, col_floor = st.columns([2, 1])
-        with col_jur:
-            _jur_choice = st.selectbox(
-                "Jurisdiction (governs binding/persuasive classification)",
-                _jur_options,
-                index=_default_idx,
-                key="canlii_jur",
-                help="Cases from the Supreme Court of Canada and from this jurisdiction's "
-                     "Court of Appeal are binding. Other provincial Courts of Appeal are "
-                     "persuasive only. Lower-court decisions are tagged Other.",
-            )
-        with col_floor:
-            _date_floor = st.selectbox(
-                "Date floor",
-                ["1 year", "3 years", "5 years", "All"],
-                index=1,
-                key="canlii_date_floor",
-                help="Recency cutoff for surfaced cases.",
-            )
-        _user_jur = _jur_choice.split(" ")[0]  # First token is the code or "*"
+    col_jur, col_floor = st.columns([2, 1])
+    with col_jur:
+        _jur_choice = st.selectbox(
+            "Jurisdiction (governs binding/persuasive classification)",
+            _jur_options,
+            index=_default_idx,
+            key="canlii_jur",
+            help="Cases from the Supreme Court of Canada and from this jurisdiction's "
+                 "Court of Appeal are binding. Other provincial Courts of Appeal are "
+                 "persuasive only. Lower-court decisions are tagged Other.",
+        )
+    with col_floor:
+        _date_floor = st.selectbox(
+            "Date floor",
+            ["1 year", "3 years", "5 years", "All"],
+            index=1,
+            key="canlii_date_floor",
+            help="Recency cutoff for surfaced cases.",
+        )
+    _user_jur = _jur_choice.split(" ")[0]  # First token is the code or "*"
 
-        # ── 2a — Subsequent history tracker (Tetrad + Proportionality) ───
-        st.markdown("#### Subsequent history — Tetrad + Proportionality corpus")
-        st.caption("Tracks recent citing cases for both lines of binding authority that PARVIS depends on. "
-                   "<span class='parvis-canlii-corpus-tag corpus-distortion'>Distortion</span> tags the Tetrad lineage "
-                   "(Gladue/Ipeelee/Morris/Ewert + downstream). "
-                   "<span class='parvis-canlii-corpus-tag corpus-proportionality'>Proportionality</span> tags the "
-                   "severity-tightening lineage (Lacasse/Friesen/Bissonnette/Sharma).",
-                   unsafe_allow_html=True)
-        col_corp, col_tet_btn = st.columns([1, 2])
-        with col_corp:
-            _corpus_choice = st.selectbox(
-                "Corpus",
-                ["all — Both lineages", "Distortion — Tetrad only", "Proportionality — only"],
-                index=0,
-                key="canlii_corpus",
+    # ── 2a — Subsequent history tracker (Tetrad + Proportionality) ───
+    st.markdown("#### Subsequent history — Tetrad + Proportionality corpus")
+    st.caption("Tracks recent citing cases for both lines of binding authority that PARVIS depends on. "
+               "<span class='parvis-canlii-corpus-tag corpus-distortion'>Distortion</span> tags the Tetrad lineage "
+               "(Gladue/Ipeelee/Morris/Ewert + downstream). "
+               "<span class='parvis-canlii-corpus-tag corpus-proportionality'>Proportionality</span> tags the "
+               "severity-tightening lineage (Lacasse/Friesen/Bissonnette/Sharma).",
+               unsafe_allow_html=True)
+    col_corp, col_tet_btn = st.columns([1, 2])
+    with col_corp:
+        _corpus_choice = st.selectbox(
+            "Corpus",
+            ["all — Both lineages", "Distortion — Tetrad only", "Proportionality — only"],
+            index=0,
+            key="canlii_corpus",
+        )
+    _corpus_arg = _corpus_choice.split(" ")[0]
+    with col_tet_btn:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _run_tet = st.button("🔄 Check tracked cases for recent developments", key="tet_btn_v2", disabled=not _canlii_active)
+        if not _canlii_active:
+            st.caption("_Configure CanLII API access to enable._")
+    if _run_tet:
+        with st.spinner("Querying CanLII for citing cases..."):
+            _updates = get_tracked_updates(
+                date_floor_label=_date_floor,
+                user_jurisdiction=_user_jur,
+                corpus=_corpus_arg,
             )
-        _corpus_arg = _corpus_choice.split(" ")[0]
-        with col_tet_btn:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            _run_tet = st.button("🔄 Check tracked cases for recent developments", key="tet_btn_v2")
-        if _run_tet:
-            with st.spinner("Querying CanLII for citing cases..."):
-                _updates = get_tracked_updates(
-                    date_floor_label=_date_floor,
-                    user_jurisdiction=_user_jur,
-                    corpus=_corpus_arg,
-                )
-            if _updates:
-                for _case_lbl, _data in _updates.items():
-                    _corpus = _data.get("corpus", "Distortion")
-                    _corpus_class = f"corpus-{_corpus.lower()}"
-                    _total = _data.get("total", 0)
-                    with st.expander(f"📌 {_case_lbl} — {_total} recent citing case(s)"):
-                        st.markdown(
-                            f"<span class='parvis-canlii-corpus-tag {_corpus_class}'>{_corpus}</span>",
-                            unsafe_allow_html=True,
-                        )
-                        for _tier_key, _tier_label, _tier_class, _tier_color in [
-                            ("binding",    "Binding",    "parvis-canlii-tier-binding",    "#3B6D11"),
-                            ("persuasive", "Persuasive", "parvis-canlii-tier-persuasive", "#3a3a3a"),
-                            ("other",      "Other",      "parvis-canlii-tier-other",      "#9E9E9E"),
-                        ]:
-                            _tier_cases = _data.get(_tier_key, [])
-                            if not _tier_cases:
-                                continue
-                            for _c in _tier_cases[:6]:
-                                _cd = _c.get("date", "")[:10] or "—"
-                                _ct = _c.get("title", "—")
-                                _cu = _c.get("url", "")
-                                _db = _c.get("database", "")
-                                _lnk = f"<a href='{_cu}' target='_blank'>{_ct}</a>" if _cu else _ct
-                                st.markdown(
-                                    f"<div class='{_tier_class}' style='font-size:12px'>"
-                                    f"<span class='parvis-canlii-tier-label' "
-                                    f"style='background:{_tier_color}22;color:{_tier_color}'>"
-                                    f"{_tier_label} · {_db.upper()}</span> "
-                                    f"<span style='color:#888'>[{_cd}]</span> {_lnk}"
-                                    f"</div>",
-                                    unsafe_allow_html=True,
-                                )
-            else:
-                st.success(f"No new citing cases found within the {_date_floor.lower()} window.")
+        if _updates:
+            for _case_lbl, _data in _updates.items():
+                _corpus = _data.get("corpus", "Distortion")
+                _corpus_class = f"corpus-{_corpus.lower()}"
+                _total = _data.get("total", 0)
+                with st.expander(f"📌 {_case_lbl} — {_total} recent citing case(s)"):
+                    st.markdown(
+                        f"<span class='parvis-canlii-corpus-tag {_corpus_class}'>{_corpus}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    for _tier_key, _tier_label, _tier_class, _tier_color in [
+                        ("binding",    "Binding",    "parvis-canlii-tier-binding",    "#3B6D11"),
+                        ("persuasive", "Persuasive", "parvis-canlii-tier-persuasive", "#3a3a3a"),
+                        ("other",      "Other",      "parvis-canlii-tier-other",      "#9E9E9E"),
+                    ]:
+                        _tier_cases = _data.get(_tier_key, [])
+                        if not _tier_cases:
+                            continue
+                        for _c in _tier_cases[:6]:
+                            _cd = _c.get("date", "")[:10] or "—"
+                            _ct = _c.get("title", "—")
+                            _cu = _c.get("url", "")
+                            _db = _c.get("database", "")
+                            _lnk = f"<a href='{_cu}' target='_blank'>{_ct}</a>" if _cu else _ct
+                            st.markdown(
+                                f"<div class='{_tier_class}' style='font-size:12px'>"
+                                f"<span class='parvis-canlii-tier-label' "
+                                f"style='background:{_tier_color}22;color:{_tier_color}'>"
+                                f"{_tier_label} · {_db.upper()}</span> "
+                                f"<span style='color:#888'>[{_cd}]</span> {_lnk}"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+        else:
+            st.success(f"No new citing cases found within the {_date_floor.lower()} window.")
 
-        # ── 2b — Per-node binding-authority browser ──────────────────────
-        st.markdown("---")
-        st.markdown("#### Per-node search — recent decisions for a specific node")
-        st.caption("Returns recent cases relevant to a chosen PARVIS node, "
-                   "tiered by stare decisis position relative to your jurisdiction.")
-        col_node, col_pn_btn = st.columns([2, 1])
-        with col_node:
-            _node_options = [f"N{nid} — {NODE_META.get(nid, {}).get('short', f'Node {nid}')}"
-                             for nid in sorted(NODE_SEARCH_QUERIES.keys()) if nid in NODE_META]
-            _node_choice = st.selectbox(
-                "Select node",
-                _node_options,
-                key="canlii_node_pick",
+    # ── 2b — Per-node binding-authority browser ──────────────────────
+    st.markdown("---")
+    st.markdown("#### Per-node search — recent decisions for a specific node")
+    st.caption("Returns recent cases relevant to a chosen PARVIS node, "
+               "tiered by stare decisis position relative to your jurisdiction.")
+    col_node, col_pn_btn = st.columns([2, 1])
+    with col_node:
+        _node_options = [f"N{nid} — {NODE_META.get(nid, {}).get('short', f'Node {nid}')}"
+                         for nid in sorted(NODE_SEARCH_QUERIES.keys()) if nid in NODE_META]
+        _node_choice = st.selectbox(
+            "Select node",
+            _node_options,
+            key="canlii_node_pick",
+        )
+    _selected_nid = int(_node_choice.split(" ")[0][1:])
+    with col_pn_btn:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _run_node = st.button("🔍 Search recent cases for this node", key="node_search_btn", disabled=not _canlii_active)
+        if not _canlii_active:
+            st.caption("_Configure CanLII API access to enable._")
+    if _run_node:
+        with st.spinner(f"Searching CanLII for Node {_selected_nid}..."):
+            _node_results = search_node_developments(
+                _selected_nid, max_results=6,
+                user_jurisdiction=_user_jur,
+                date_floor_label=_date_floor,
             )
-        _selected_nid = int(_node_choice.split(" ")[0][1:])
-        with col_pn_btn:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            _run_node = st.button("🔍 Search recent cases for this node", key="node_search_btn")
-        if _run_node:
-            with st.spinner(f"Searching CanLII for Node {_selected_nid}..."):
-                _node_results = search_node_developments(
-                    _selected_nid, max_results=6,
-                    user_jurisdiction=_user_jur,
-                    date_floor_label=_date_floor,
-                )
-            if _node_results.get("error"):
-                st.error(_node_results["error"])
-            elif _node_results.get("total", 0) == 0:
-                st.info(f"No recent results found for Node {_selected_nid} within the {_date_floor.lower()} window.")
-            else:
-                for _tier_key, _tier_label, _tier_class, _tier_color in [
-                    ("binding",    "Binding",    "parvis-canlii-tier-binding",    "#3B6D11"),
-                    ("persuasive", "Persuasive", "parvis-canlii-tier-persuasive", "#3a3a3a"),
-                    ("other",      "Other",      "parvis-canlii-tier-other",      "#9E9E9E"),
-                ]:
-                    _tier_cases = _node_results.get(_tier_key, [])
-                    if not _tier_cases:
-                        continue
-                    st.markdown(f"<b style='color:{_tier_color}'>{_tier_label} ({len(_tier_cases)})</b>",
-                                unsafe_allow_html=True)
-                    for _c in _tier_cases:
-                        _cd = _c.get("date", "")[:10] or "—"
-                        _cit = _c.get("citation") or _c.get("title", "—")
-                        _cu = _c.get("url", "")
-                        _db = _c.get("database", "")
-                        _lnk = f"<a href='{_cu}' target='_blank'>{_cit}</a>" if _cu else _cit
-                        st.markdown(
-                            f"<div class='{_tier_class}' style='font-size:12px'>"
-                            f"<span class='parvis-canlii-tier-label' "
-                            f"style='background:{_tier_color}22;color:{_tier_color}'>"
-                            f"{_tier_label} · {_db.upper()}</span> "
-                            f"<span style='color:#888'>[{_cd}]</span> {_lnk}"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
+        if _node_results.get("error"):
+            st.error(_node_results["error"])
+        elif _node_results.get("total", 0) == 0:
+            st.info(f"No recent results found for Node {_selected_nid} within the {_date_floor.lower()} window.")
+        else:
+            for _tier_key, _tier_label, _tier_class, _tier_color in [
+                ("binding",    "Binding",    "parvis-canlii-tier-binding",    "#3B6D11"),
+                ("persuasive", "Persuasive", "parvis-canlii-tier-persuasive", "#3a3a3a"),
+                ("other",      "Other",      "parvis-canlii-tier-other",      "#9E9E9E"),
+            ]:
+                _tier_cases = _node_results.get(_tier_key, [])
+                if not _tier_cases:
+                    continue
+                st.markdown(f"<b style='color:{_tier_color}'>{_tier_label} ({len(_tier_cases)})</b>",
+                            unsafe_allow_html=True)
+                for _c in _tier_cases:
+                    _cd = _c.get("date", "")[:10] or "—"
+                    _cit = _c.get("citation") or _c.get("title", "—")
+                    _cu = _c.get("url", "")
+                    _db = _c.get("database", "")
+                    _lnk = f"<a href='{_cu}' target='_blank'>{_cit}</a>" if _cu else _cit
+                    st.markdown(
+                        f"<div class='{_tier_class}' style='font-size:12px'>"
+                        f"<span class='parvis-canlii-tier-label' "
+                        f"style='background:{_tier_color}22;color:{_tier_color}'>"
+                        f"{_tier_label} · {_db.upper()}</span> "
+                        f"<span style='color:#888'>[{_cd}]</span> {_lnk}"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
-        # ── 2c — Directed search ──────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("#### Directed search — free-text query")
-        st.caption("Run a free-text query against CanLII. Results are filtered by your "
-                   "jurisdiction and date floor, then tiered by stare decisis position.")
-        col_q, col_q_btn = st.columns([3, 1])
-        with col_q:
-            _query = st.text_input(
-                "Search query",
-                placeholder="e.g. dangerous offender Indigenous Gladue 2024",
-                key="canlii_directed_q",
+    # ── 2c — Directed search ──────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### Directed search — free-text query")
+    st.caption("Run a free-text query against CanLII. Results are filtered by your "
+               "jurisdiction and date floor, then tiered by stare decisis position.")
+    col_q, col_q_btn = st.columns([3, 1])
+    with col_q:
+        _query = st.text_input(
+            "Search query",
+            placeholder="e.g. dangerous offender Indigenous Gladue 2024",
+            key="canlii_directed_q",
+        )
+    with col_q_btn:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _run_q = st.button("🔍 Search CanLII", key="directed_search_btn", disabled=not _canlii_active)
+        if not _canlii_active:
+            st.caption("_Configure CanLII API access to enable._")
+    if _run_q and _query.strip():
+        with st.spinner(f"Searching CanLII for '{_query[:40]}'..."):
+            _q_results = search_with_filters(
+                query=_query.strip(),
+                user_jurisdiction=_user_jur,
+                date_floor_label=_date_floor,
+                max_results=8,
             )
-        with col_q_btn:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            _run_q = st.button("🔍 Search CanLII", key="directed_search_btn")
-        if _run_q and _query.strip():
-            with st.spinner(f"Searching CanLII for '{_query[:40]}'..."):
-                _q_results = search_with_filters(
-                    query=_query.strip(),
-                    user_jurisdiction=_user_jur,
-                    date_floor_label=_date_floor,
-                    max_results=8,
-                )
-            if _q_results.get("error"):
-                st.error(_q_results["error"])
-            elif _q_results.get("total", 0) == 0:
-                st.info(f"No results found for '{_query}' within the {_date_floor.lower()} window.")
-            else:
-                st.caption(f"Total results: {_q_results.get('total', 0)}")
-                for _tier_key, _tier_label, _tier_class, _tier_color in [
-                    ("binding",    "Binding",    "parvis-canlii-tier-binding",    "#3B6D11"),
-                    ("persuasive", "Persuasive", "parvis-canlii-tier-persuasive", "#3a3a3a"),
-                    ("other",      "Other",      "parvis-canlii-tier-other",      "#9E9E9E"),
-                ]:
-                    _tier_cases = _q_results.get(_tier_key, [])
-                    if not _tier_cases:
-                        continue
-                    st.markdown(f"<b style='color:{_tier_color}'>{_tier_label} ({len(_tier_cases)})</b>",
-                                unsafe_allow_html=True)
-                    for _c in _tier_cases:
-                        _cd = _c.get("date", "")[:10] or "—"
-                        _cit = _c.get("citation") or _c.get("title", "—")
-                        _cu = _c.get("url", "")
-                        _db = _c.get("database", "")
-                        _lnk = f"<a href='{_cu}' target='_blank'>{_cit}</a>" if _cu else _cit
-                        st.markdown(
-                            f"<div class='{_tier_class}' style='font-size:12px'>"
-                            f"<span class='parvis-canlii-tier-label' "
-                            f"style='background:{_tier_color}22;color:{_tier_color}'>"
-                            f"{_tier_label} · {_db.upper()}</span> "
-                            f"<span style='color:#888'>[{_cd}]</span> {_lnk}"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
+        if _q_results.get("error"):
+            st.error(_q_results["error"])
+        elif _q_results.get("total", 0) == 0:
+            st.info(f"No results found for '{_query}' within the {_date_floor.lower()} window.")
+        else:
+            st.caption(f"Total results: {_q_results.get('total', 0)}")
+            for _tier_key, _tier_label, _tier_class, _tier_color in [
+                ("binding",    "Binding",    "parvis-canlii-tier-binding",    "#3B6D11"),
+                ("persuasive", "Persuasive", "parvis-canlii-tier-persuasive", "#3a3a3a"),
+                ("other",      "Other",      "parvis-canlii-tier-other",      "#9E9E9E"),
+            ]:
+                _tier_cases = _q_results.get(_tier_key, [])
+                if not _tier_cases:
+                    continue
+                st.markdown(f"<b style='color:{_tier_color}'>{_tier_label} ({len(_tier_cases)})</b>",
+                            unsafe_allow_html=True)
+                for _c in _tier_cases:
+                    _cd = _c.get("date", "")[:10] or "—"
+                    _cit = _c.get("citation") or _c.get("title", "—")
+                    _cu = _c.get("url", "")
+                    _db = _c.get("database", "")
+                    _lnk = f"<a href='{_cu}' target='_blank'>{_cit}</a>" if _cu else _cit
+                    st.markdown(
+                        f"<div class='{_tier_class}' style='font-size:12px'>"
+                        f"<span class='parvis-canlii-tier-label' "
+                        f"style='background:{_tier_color}22;color:{_tier_color}'>"
+                        f"{_tier_label} · {_db.upper()}</span> "
+                        f"<span style='color:#888'>[{_cd}]</span> {_lnk}"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
 
-        # ── Section 3: Doctrine update alerts (preserved) ────────────────
-        st.markdown("---")
-        st.markdown("#### ⚡ Doctrine update alerts")
-        st.caption("Nodes with actively evolving law — flagged in doctrine.py:")
-        try:
-            from doctrine import get_update_notes
-            notes = get_update_notes()
-            for nid, note in notes.items():
-                nm = NODE_META.get(nid, {})
-                col = TC.get(nm.get("type", "distortion"), "#185FA5")
-                st.markdown(
-                    f"<div style='border-left:3px solid {col};padding:6px 12px;margin:4px 0;"
-                    f"background:{col}11;border-radius:0 6px 6px 0'>"
-                    f"<b style='color:{col}'>N{nid} — {nm.get('short','')}</b><br>"
-                    f"<span style='font-size:12px'>{note}</span></div>",
-                    unsafe_allow_html=True,
-                )
-        except Exception:
-            st.caption("doctrine.py update notes unavailable.")
+    # ── Section 3: Doctrine update alerts (preserved) ────────────────
+    st.markdown("---")
+    st.markdown("#### ⚡ Doctrine update alerts")
+    st.caption("Nodes with actively evolving law — flagged in doctrine.py:")
+    try:
+        from doctrine import get_update_notes
+        notes = get_update_notes()
+        for nid, note in notes.items():
+            nm = NODE_META.get(nid, {})
+            col = TC.get(nm.get("type", "distortion"), "#185FA5")
+            st.markdown(
+                f"<div style='border-left:3px solid {col};padding:6px 12px;margin:4px 0;"
+                f"background:{col}11;border-radius:0 6px 6px 0'>"
+                f"<b style='color:{col}'>N{nid} — {nm.get('short','')}</b><br>"
+                f"<span style='font-size:12px'>{note}</span></div>",
+                unsafe_allow_html=True,
+            )
+    except Exception:
+        st.caption("doctrine.py update notes unavailable.")
 
 # ── T3: Intake (Chat) — PARVIS assistant ────────────────────────────────────
 with TABS[3]:
