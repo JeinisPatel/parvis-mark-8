@@ -296,68 +296,152 @@ def _top_drivers(P, k=5):
 # The multipliers below are conservative; they do NOT modify cal_weight,
 # they sit alongside it as an explicit N7-specific adjustment.
 
-# Multiplier scheme (confirmed by JP, Apr 27 2026)
+# Multiplier scheme (per-conviction reliability grade → cal_weight multiplier)
+# Confirmed by JP, Apr 27 2026; values aligned with §RM.3.
 N7_MULTIPLIERS = {
     "Unmodified":         1.00,   # full weight
     "Discounted":         0.60,   # 40% reduction
     "Heavily Discounted": 0.30,   # 70% reduction
 }
 
-# Threshold scheme (confirmed by JP, Apr 27 2026)
-def _n7_grade_for_conviction(conviction, n7_posterior):
+# Propagation factor scheme (§RM.5.4): when a downstream conviction has its
+# own affirmative bail-denial signal AND a prior conviction on the same
+# record has been graded as Discounted or Heavily Discounted, the per-conviction
+# bail-denial signal on the downstream conviction is multiplied by the
+# propagation factor before threshold logic. The architecture takes the
+# strongest upstream propagation factor; multiple tainted upstream
+# convictions do not compound.
+N7_PROPAGATION_FACTOR = {
+    "Unmodified":         1.00,   # no propagation
+    "Discounted":         1.15,   # +15% boost to downstream bail signal
+    "Heavily Discounted": 1.30,   # +30% boost
+}
+
+# Jump-principle weight scheme (§RM.5.5): each conviction's contribution
+# to the jump principle's own_ceiling is weighted by its reliability grade.
+# A Heavily Discounted conviction contributes at 30% of nominal; the
+# architecture treats most of its sentence inflation as cascade
+# contamination rather than legitimate severity.
+JUMP_WEIGHT_BY_GRADE = {
+    "Unmodified":         1.00,   # full anchoring weight
+    "Discounted":         0.60,   # 40% reduction (alignment with N7_MULTIPLIERS)
+    "Heavily Discounted": 0.30,   # 70% reduction
+}
+
+
+def _n7_threshold_grade(combined_indicator):
     """
-    Return the N7 ordinal grade for a single conviction.
-
-    A conviction is graded by combining:
-      (a) the per-conviction bail-denial reduction (`adj.bail`, set
-          on the Criminal Record tab when the conviction was added)
-      (b) the network-level N7 posterior (which reflects the case-wide
-          cascade conditions: bail+IAC+SCE absence+marginalisation)
-
-    Combination rule: take the maximum of the two — a conviction is at
-    least as discounted as either its own bail-denial flag suggests
-    OR the case-wide N7 cascade requires. This is the most conservative
-    interpretation faithful to §5.1.7: if either the conviction itself
-    OR the network state indicates cascade conditions, the conviction's
-    reliability is qualified.
+    Apply the §5.1.7 threshold logic to a combined indicator value
+    (after any propagation factor has been applied) and return the
+    ordinal grade.
     """
-    per_conviction_bail = float(conviction.get("adj", {}).get("bail", 0.0))
-    n7_post = float(n7_posterior)
-
-    # Combined indicator: conservative max
-    combined = max(per_conviction_bail, n7_post)
-
-    # Threshold logic (confirmed by JP)
-    if combined < 0.30:
+    if combined_indicator < 0.30:
         return "Unmodified"
-    elif combined <= 0.65:
+    elif combined_indicator <= 0.65:
         return "Discounted"
     else:
         return "Heavily Discounted"
 
 
-def _n7_multiplier_for_conviction(conviction, n7_posterior):
-    """Return the numerical multiplier (0.30 / 0.60 / 1.00) for a conviction."""
+def _n7_grades_chronological(criminal_record_chronological):
+    """
+    Compute per-conviction grades in chronological order, applying the
+    cascade-propagation factor where applicable.
+
+    Per §RM.5.4: a conviction's per-conviction bail-denial signal is
+    multiplied by the strongest propagation factor from earlier graded
+    tainted convictions on the same record. Propagation requires:
+      (a) the downstream conviction has its own affirmative bail-denial
+          signal (adj.bail > 0)
+      (b) at least one earlier conviction is graded Discounted or
+          Heavily Discounted
+
+    Returns: list of (grade, multiplier, propagation_factor_applied) tuples
+    in the same order as the input record.
+    """
+    if not criminal_record_chronological:
+        return []
+
+    results = []
+    earlier_grades = []  # Accumulates as we walk the record forward
+
+    for e in criminal_record_chronological:
+        per_conv_bail = float(e.get("adj", {}).get("bail", 0.0))
+
+        # Determine propagation factor: strongest of any earlier tainted
+        # conviction. If no earlier tainted convictions, factor = 1.00.
+        if per_conv_bail > 0.0 and earlier_grades:
+            applicable_factors = [
+                N7_PROPAGATION_FACTOR[g] for g in earlier_grades
+                if g in ("Discounted", "Heavily Discounted")
+            ]
+            propagation = max(applicable_factors) if applicable_factors else 1.00
+        else:
+            # If conviction has no own bail-denial signal, propagation
+            # cannot apply (per §RM.5.3: the cascade chain requires actual
+            # pre-trial detention on the downstream conviction).
+            propagation = 1.00
+
+        # Apply propagation factor to per-conviction signal
+        boosted_signal = per_conv_bail * propagation
+
+        # Apply threshold logic
+        grade = _n7_threshold_grade(boosted_signal)
+        multiplier = N7_MULTIPLIERS[grade]
+
+        results.append((grade, multiplier, propagation))
+        earlier_grades.append(grade)
+
+    return results
+
+
+def _n7_grade_for_conviction(conviction, n7_posterior=None):
+    """
+    Backward-compat single-conviction grading.
+
+    DEPRECATED for record-level grading: use _n7_grades_chronological(),
+    which properly accounts for propagation. This function is retained
+    only for callers that grade a single conviction in isolation
+    (e.g. UI display when the conviction is being added). It applies
+    per-conviction-only logic without propagation.
+
+    The n7_posterior argument is preserved for signature compatibility
+    but is no longer consulted: grading is now per-conviction only,
+    consistent with §5.1.7's per-plea framing.
+    """
+    per_conv_bail = float(conviction.get("adj", {}).get("bail", 0.0))
+    return _n7_threshold_grade(per_conv_bail)
+
+
+def _n7_multiplier_for_conviction(conviction, n7_posterior=None):
+    """Return the numerical multiplier for a conviction (no propagation)."""
     return N7_MULTIPLIERS[_n7_grade_for_conviction(conviction, n7_posterior)]
 
 
-def _n7_aggregate_record_weight(criminal_record, n7_posterior):
+def _n7_aggregate_record_weight(criminal_record, n7_posterior=None):
     """
     Return (nominal_mean, n7_adjusted_mean, per_conviction_grades).
 
-    Nominal:   mean of cal_weight across all convictions (status quo)
-    Adjusted:  mean of (cal_weight × N7-multiplier) across convictions
+    Nominal:   mean of cal_weight across all convictions
+    Adjusted:  mean of (cal_weight × N7-multiplier-with-propagation)
     Grades:    list of (grade, multiplier) tuples in conviction order
+
+    Now applies cascade propagation per §RM.5.4: convictions are graded
+    chronologically, and earlier tainted convictions can boost the
+    bail-denial signal of later convictions.
+
+    The n7_posterior argument is preserved for signature compatibility
+    but no longer consulted (grading is per-conviction-only).
     """
     if not criminal_record:
         return None, None, []
 
     nominal_weights = [float(e.get("cal_weight", 0.0)) for e in criminal_record]
-    grades = [
-        (_n7_grade_for_conviction(e, n7_posterior),
-         _n7_multiplier_for_conviction(e, n7_posterior))
-        for e in criminal_record
-    ]
+
+    # Compute grades in chronological order (assumed already sorted by
+    # caller; criminal_record.sort by year ascending happens upstream).
+    chronological_results = _n7_grades_chronological(criminal_record)
+    grades = [(grade, mult) for grade, mult, _prop in chronological_results]
     adjusted_weights = [w * m for w, (_, m) in zip(nominal_weights, grades)]
 
     return (
@@ -448,41 +532,56 @@ def _jump_ceiling_for_conviction(conviction):
 
 def _jump_cumulative_chain(criminal_record_chronological):
     """
-    Return list of (own_ceiling, inherited_ceiling) tuples in chronological order.
+    Return list of (own_ceiling, inherited_ceiling, grade, weight) tuples
+    in chronological order.
 
-    `own_ceiling` is the conviction's own inflationary contribution.
-    `inherited_ceiling` is the sum of all prior convictions' own_ceiling,
-    capped at 0.40 per §3.5.3 cumulative-cap methodology choice.
+    `own_ceiling` is the conviction's nominal inflationary contribution
+    (sentence_inflation × era × gladue_compliance), AFTER weighting by
+    its N7 reliability grade per §RM.5.5. A conviction graded
+    Heavily Discounted contributes at 0.30 of its nominal anchoring weight,
+    reflecting the architecture's prior judgment that the conviction's
+    severity reflects cascade contamination rather than legitimate
+    sentencing assessment.
+
+    `inherited_ceiling` is the sum of all prior convictions' weighted
+    own_ceiling, capped at 0.40 per §3.5.3 cumulative-cap methodology.
 
     The first (earliest) conviction has inherited = 0; each subsequent
-    conviction inherits the running sum of prior ceiling effects.
+    conviction inherits the running sum of prior weighted ceiling effects.
     """
     JUMP_CUMULATIVE_CAP = 0.40
     chain = []
     running = 0.0
-    for e in criminal_record_chronological:
-        own = _jump_ceiling_for_conviction(e)
+    # Run the chronological grading pass first to get each conviction's
+    # reliability grade for jump-principle weighting.
+    grading = _n7_grades_chronological(criminal_record_chronological)
+    for e, (grade, _mult, _prop) in zip(criminal_record_chronological, grading):
+        nominal_own = _jump_ceiling_for_conviction(e)
+        weight = JUMP_WEIGHT_BY_GRADE.get(grade, 1.00)
+        weighted_own = nominal_own * weight
         inherited_capped = min(running, JUMP_CUMULATIVE_CAP)
-        chain.append((own, inherited_capped))
-        running += own
+        chain.append((weighted_own, inherited_capped, grade, weight))
+        running += weighted_own
     return chain
 
 def _jump_record_n2_shift(criminal_record_chronological):
     """
     Return the upward shift to apply to N2 from the cumulative ceiling effect.
 
-    Reads the cumulative ceiling at the most recent conviction (last in
-    chronological order) and applies a 0.5 coefficient — the shift to N2 is
-    half the cumulative ceiling, conservatively scaled to keep N2 within
+    Reads the (now grade-weighted) cumulative ceiling at the most recent
+    conviction and applies a 0.5 coefficient — the shift to N2 is half
+    the cumulative ceiling, conservatively scaled to keep N2 within
     [0, 0.95] in _cr_feed_nodes.
+
+    The chain returned by _jump_cumulative_chain now carries 4-tuples
+    (own_ceiling, inherited_ceiling, grade, weight). The first two values
+    are the relevant scalars for the shift computation.
     """
     if not criminal_record_chronological:
         return 0.0
     chain = _jump_cumulative_chain(criminal_record_chronological)
     # Cumulative ceiling AT the most recent conviction = inherited + own
-    # (because the most recent conviction is itself contributing forward to
-    # any future decision).
-    own_last, inherited_last = chain[-1]
+    own_last, inherited_last = chain[-1][0], chain[-1][1]
     cumulative_at_end = min(inherited_last + own_last, 0.40)
     return 0.5 * cumulative_at_end
 
@@ -5550,7 +5649,7 @@ with TABS[4]:
 
                 # Compute total cumulative ceiling at end-of-record for caption
                 _full_chain = _jump_cumulative_chain(rec)
-                _own_last, _inh_last = _full_chain[-1]
+                _own_last, _inh_last = _full_chain[-1][0], _full_chain[-1][1]
                 _cumulative_at_end = min(_inh_last + _own_last, 0.40)
 
                 st.markdown(
@@ -5654,8 +5753,10 @@ with TABS[4]:
         st.markdown("<div style='height:.5rem'></div>", unsafe_allow_html=True)
 
         # Pre-compute the chronological ceiling-effect chain (Ch 3 §3.5.3)
+        # AND the chronological N7 grading (Ch 5 §5.1.7 + §RM.5.4 propagation).
         # Index `i` matches sorted chronological order (earliest first).
         _jump_chain = _jump_cumulative_chain(rec)
+        _n7_grading = _n7_grades_chronological(rec)  # list of (grade, mult, prop)
 
         # Per-conviction cards — each with its own document attachment
         for i, e in enumerate(rec):
@@ -5663,9 +5764,10 @@ with TABS[4]:
             raw_pct = e["raw_weight"] * 100
             col_c = "#3B6D11" if cal_pct >= 70 else "#BA7517" if cal_pct >= 40 else "#A32D2D"
             adj = e["adj"]
-            # ── N7 reliability modifier for this conviction (Ch 5 §5.1.7) ──
-            _n7_grade_card = _n7_grade_for_conviction(e, _n7_post_now)
-            _n7_mult_card  = N7_MULTIPLIERS[_n7_grade_card]
+            # ── N7 reliability modifier for this conviction (Ch 5 §5.1.7 + §RM.5.4) ──
+            # Use chronological grading (accounts for cascade propagation
+            # from earlier tainted convictions).
+            _n7_grade_card, _n7_mult_card, _n7_prop_card = _n7_grading[i]
             _n7_eff_pct    = e["cal_weight"] * _n7_mult_card * 100
             # Grade-specific colour
             _grade_col = {
@@ -5673,8 +5775,10 @@ with TABS[4]:
                 "Discounted":         "#BA7517",
                 "Heavily Discounted": "#A32D2D",
             }[_n7_grade_card]
-            # ── Jump-principle ceiling effect (Ch 3 §3.5.3) ────────────────
-            _jump_own, _jump_inherited = _jump_chain[i]
+            # ── Jump-principle ceiling effect (Ch 3 §3.5.3 + §RM.5.5) ──────
+            # Chain now carries (own, inherited, grade, weight). The own_ceiling
+            # already includes the JUMP_WEIGHT_BY_GRADE factor.
+            _jump_own, _jump_inherited = _jump_chain[i][0], _jump_chain[i][1]
             # Colour scale for own ceiling effect
             if _jump_own < 0.10:   _jump_col = "#3B6D11"
             elif _jump_own < 0.25: _jump_col = "#BA7517"
