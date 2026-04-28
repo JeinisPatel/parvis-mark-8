@@ -954,6 +954,7 @@ try:
         search_with_filters, get_tracked_updates,
         flatten_search_results, validate_api_key,
         ALL_TRACKED_CITATIONS, TETRAD_CITATIONS, PROPORTIONALITY_CITATIONS,
+        NODE_SEARCH_QUERIES,
     )
     CANLII_ON = True
 except ImportError:
