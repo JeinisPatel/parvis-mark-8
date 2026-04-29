@@ -67,14 +67,17 @@ import numpy as np
 #   N7 → N2 cascade preserved (bail-WCGP affects record reliability)
 #   N20 (DO designation) is downstream of all distortion + risk nodes
 #       but computed POST-VE (not in pgmpy network)
-EDGES_VE = [(f, t) for f, t in [
+# Edges with int IDs and string IDs both supported. String IDs are used for
+# the §5.1.17 sub-nodes (17a/b/c/d) and §5.1.14 sub-nodes (14a/b/c/d).
+EDGES_VE = [(str(f), str(t)) for f, t in [
     # Layer I — Substantive Risk
     (1, 2), (1, 3), (1, 4),
     # Layer II — Distortion conditioning
     (1, 6), (1, 8),                 # N1 conditions IAC and FASD evidentiary thresholds
     (7, 2),                         # bail-WCGP affects violent-history reliability (preserved)
     (2, 5), (3, 5), (4, 5),        # validated risk inputs feed risk-tool node
-    (2, 14),                        # violent history feeds temporal distortion
+    # NOTE: (2, 14) DROPPED per Q2 — N2 not doctrinally a parent of N14.
+    # N14's parents are §5.1.14 §5 production conditions (era, MM, SCE, judicial competence).
     (6, 7),                         # IAC → bail cascade
     (6, 10),                        # IAC contributes to judicial misapplication
     (8, 9),                         # FASD → IGT/cultural-treatment
@@ -84,13 +87,29 @@ EDGES_VE = [(f, t) for f, t in [
     (10, 18),                       # judicial misapplication → SCE Profile audit
     (9, 18),                        # IGT → SCE Profile audit
     (3, 11),                        # sexual offence risk profile → gaming detector
-    (13, 17),                       # TraceRoute → over-policing
+    # ── §5.1.17 N17 four-parent topology (C3: TraceRoute routes through N17a) ──
+    (13, '17a'),                    # TraceRoute → Jurisdictional Policing Disparity
+    ('17a', 17), ('17b', 17), ('17c', 17), ('17d', 17),  # 4 parents → N17
     (17, 19),                       # over-policing → collider bias
     (14, 19),                       # temporal distortion → collider bias  
     (10, 16),                       # judicial misapplication → doctrinal tension
-    (10, 15),                       # SCE misapp → tariff distortion
+    # NOTE: (10, 15) DROPPED per Q4 — N10 not a doctrinal parent of N15 per
+    # §5.1.15 §5. The five canonical parents are jurisdiction, offence type,
+    # sentence length, year, and jurisprudential weighting — N10 doesn't
+    # appear among them. Old edge was holdover from earlier taxonomy.
     (14, 18),                       # temporal distortion → SCE Profile audit
     (12, 18),                       # judging-the-judge → SCE Profile audit
+    # ── §5.1.14 N14 four-parent topology (Q3: N13→14a, N10→14d) ──
+    (13, '14a'),                    # TraceRoute → Era Severity (structural prior)
+    (10, '14d'),                    # Misapplication → Judicial Competence Absent (kinship)
+    ('14a', 14), ('14b', 14), ('14c', 14), ('14d', 14),  # 4 parents → N14
+    # ── §5.1.15 N15 four-sub-node + N14 topology (Q4 (α)) ──
+    # N13 → N15a routes structural-bias signal through tariff-jurisdiction sub-node
+    # (mirrors N13→N14a, N13→N17a). N14 → N15 directly at node level honors
+    # §5.1.15's explicit downstream-of-N14 positioning (Position section).
+    (13, '15a'),                    # TraceRoute → Tariff jurisdiction (structural prior)
+    (14, 15),                       # Temporal distortion → Tariff distortion (§5.1.15 Position)
+    ('15a', 15), ('15b', 15), ('15c', 15), ('15d', 15),  # 4 sub-nodes → N15
 ]]
 
 
@@ -119,6 +138,31 @@ NODE_META = {
     17: {"name": "Over-policing & epistemic contamination",       "short": "Over-policing",         "type": "distortion", "ev": True},
     18: {"name": "Gladue / Ewert / Morris / Ellis profile",       "short": "SCE profile audit",     "type": "distortion", "ev": False},
     19: {"name": "Collider bias",                                 "short": "Collider bias",         "type": "distortion", "ev": False},
+    # ── §5.1.17 sub-nodes — four parents of N17 (added per JP confirmation C1) ──
+    # These are sub-nodes of N17 (similar to N10a-N10d for Gladue misapplication factors).
+    # IDs stored as strings to disambiguate from int node IDs.
+    "17a": {"name": "Jurisdictional policing disparity",          "short": "Disparity",       "type": "distortion", "ev": True},
+    "17b": {"name": "Enforcement-disparity engagement",           "short": "Engagement",  "type": "distortion", "ev": True},
+    "17c": {"name": "Non-violent charge density",                 "short": "Non-violent",   "type": "distortion", "ev": True},
+    "17d": {"name": "Surveillance-triggered entries",             "short": "Surveillance",          "type": "distortion", "ev": True},
+    # ── §5.1.14 sub-nodes — four parents of N14 (Q1: mirror N17 pattern) ──
+    # N14a: Sentencing era severity (state 1 = severe era)
+    # N14b: Historical mandatory minimum (state 1 = MM-era)
+    # N14c: SCE absent at sentencing (state 1 = absent — adverse direction)
+    # N14d: Judicial competence absent (state 1 = absent — adverse direction)
+    "14a": {"name": "Sentencing era severity",                    "short": "Era severity",          "type": "distortion", "ev": True},
+    "14b": {"name": "Historical mandatory minimum",               "short": "Mandatory min",         "type": "distortion", "ev": True},
+    "14c": {"name": "SCE absent at sentencing",                   "short": "SCE absent",            "type": "distortion", "ev": True},
+    "14d": {"name": "Judicial competence absent",                 "short": "Comp absent",           "type": "distortion", "ev": True},
+    # ── §5.1.15 sub-nodes — four parents of N15 (Q2: mirror N14 pattern) ──
+    # N15a: Tariff jurisdiction (state 1 = High-tariff jurisdiction)
+    # N15b: Tariff offence (state 1 = tariff-sensitive offence category)
+    # N15c: Tariff length (state 1 = sentence exceeds offence-conditional threshold)
+    # N15d: Doctrine absent (state 1 = no jurisprudence applied — adverse direction)
+    "15a": {"name": "Tariff jurisdiction disparity",              "short": "Tariff jurisdiction",   "type": "distortion", "ev": True},
+    "15b": {"name": "Tariff-sensitive offence type",              "short": "Tariff offence",        "type": "distortion", "ev": True},
+    "15c": {"name": "Tariff-sensitive sentence length",           "short": "Tariff length",         "type": "distortion", "ev": True},
+    "15d": {"name": "Jurisprudential compliance absent",          "short": "Doctrine absent",       "type": "distortion", "ev": True},
     # ── Structural Output (CH5 iii) ──────────────────────────────────────────
     20: {"name": "Dangerous offender designation",                "short": "DO designation",        "type": "output",     "ev": False},
 }
@@ -284,18 +328,126 @@ def build_model():
 
     # ── N14: Temporal Distortion (parent: N2) ────────────────────────────────
     # Maps from current N15 (Temporal distortion), CPT preserved
-    cpd14 = _cpt('14', ['2'], [
-        [0.60, 0.40],
-        [0.40, 0.60],
+    # ── N14a: Sentencing era severity (parent: N13 TraceRoute) ──────────────
+    # Per §5.1.14 §5 + Q3 routing: TraceRoute (structural systemic bias) conditions
+    # the era severity index. When N13 (TraceRoute) is High, structural-bias-era
+    # conditions raise baseline expectation that the sentencing era was severe.
+    cpd14a = _cpt('14a', ['13'], [
+        [0.65, 0.40],     # P(era severity Low) — neutral when N13 Low; corrected when High
+        [0.35, 0.60],     # P(era severity High) — rises with structural bias signal
     ])
 
-    # ── N15: Interjurisdictional Tariff Distortion (parent: N10) ─────────────
-    # Maps from current N16 (Tariff disparities), CPT preserved
-    # Per CH5 §5.1.15: tariff distortion is mediated by jurisprudential
-    # compliance (proxied by N10 misapplication)
-    cpd15 = _cpt('15', ['10'], [
-        [0.62, 0.42],
-        [0.38, 0.58],
+    # ── N14b: Historical mandatory minimum (no parents — evidence) ──────────
+    # Per Q6 (α): pattern-matched from criminal record (offence type + year).
+    # Default prior reflects baseline rate of MM-era convictions in records.
+    cpd14b = TabularCPD(variable='14b', variable_card=2, values=[[0.65], [0.35]])
+
+    # ── N14c: SCE absent at sentencing (no parents — evidence) ──────────────
+    # Per Q6 (α): pattern-matched from conviction years (pre-2012 = SCE typically
+    # absent or nominal; post-2012 = SCE formally available per Ipeelee).
+    # Default prior reflects baseline rate.
+    cpd14c = TabularCPD(variable='14c', variable_card=2, values=[[0.55], [0.45]])
+
+    # ── N14d: Judicial competence absent (parent: N10) ──────────────────────
+    # Per Q3: N10 (Judicial Misapplication) conditions cultural competence.
+    # When misapplication is High, judicial competence at original sentencing
+    # was likely absent or superficial.
+    cpd14d = _cpt('14d', ['10'], [
+        [0.70, 0.35],     # P(competence absent = Low) when N10 Low / High
+        [0.30, 0.65],     # P(competence absent = High) — rises with N10 high
+    ])
+
+    # ── N14: Temporal distortion (4 parents) ────────────────────────────────
+    # Per CH5 §5.1.14 §7 illustrative CPT (binary collapse, anchors hit exactly):
+    #   (0,0,0,0) all benign            → P(distortion) = 0.15  [§7 row 4]
+    #   (1,1,1,1) all adverse           → P(distortion) = 0.95  [§7 row 1]
+    #   (1,1,0,1) severe era + MM +     → P(distortion) = 0.90  [§7 row 2,
+    #     SCE present + comp absent       binary collapse: superficial→absent]
+    #
+    # Big-endian column ordering per pgmpy:
+    #   col_idx = state(14a)*8 + state(14b)*4 + state(14c)*2 + state(14d)*1
+    #
+    # Structural weighting per §5.1.14 §4: era severity + MM are the dominant
+    # adverse signals (production-condition factors); SCE and competence are
+    # secondary (correctable-at-time-of-sentencing factors). Single-parent
+    # contributions: N14a ~0.30, N14b ~0.25, N14c ~0.15, N14d ~0.15.
+    # Anchor points hit §5.1.14 §7 exactly; intermediate combinations
+    # interpolated to maintain monotonicity in adverse parent count.
+    cpd14 = _cpt('14', ['14a', '14b', '14c', '14d'], [
+        # P(N14 = Low distortion): 1 - P(High)
+        [0.85, 0.70, 0.70, 0.50, 0.60, 0.45, 0.45, 0.25,
+         0.55, 0.40, 0.40, 0.15, 0.35, 0.10, 0.15, 0.05],
+        # P(N14 = High distortion) — anchored to §5.1.14 §7
+        [0.15, 0.30, 0.30, 0.50, 0.40, 0.55, 0.55, 0.75,
+         0.45, 0.60, 0.60, 0.85, 0.65, 0.90, 0.85, 0.95],
+    ])
+
+    # ── N15a: Tariff jurisdiction disparity (parent: N13 TraceRoute) ────────
+    # Per Q4 (α): TraceRoute structural-bias signal conditions which provincial
+    # tariff context the conviction was imposed in. When N13 (TraceRoute) is
+    # High, the case engages structural-bias patterns that are themselves
+    # correlated with high-tariff sentencing regions per Doob/Cesaroni/Roach.
+    cpd15a = _cpt('15a', ['13'], [
+        [0.65, 0.42],     # P(15a Low / Low-tariff) when N13 Low / High
+        [0.35, 0.58],     # P(15a High / High-tariff) — rises with structural bias
+    ])
+
+    # ── N15b: Tariff-sensitive offence type (no parents — evidence) ─────────
+    # Per Q6 (α): pattern-matched from offence text against tariff-sensitive
+    # offence categories (Property, Drug, Administration of Justice).
+    # Default prior reflects baseline rate.
+    cpd15b = TabularCPD(variable='15b', variable_card=2, values=[[0.55], [0.45]])
+
+    # ── N15c: Tariff-sensitive sentence length (no parents — evidence) ──────
+    # Per Q6 (α): offence-conditional threshold:
+    #   Tariff-sensitive offences: sentence > 1 year → state 1
+    #   Conduct-driven offences (violent, sexual): sentence > 3 years → state 1
+    # Default prior reflects baseline rate of long sentences.
+    cpd15c = TabularCPD(variable='15c', variable_card=2, values=[[0.60], [0.40]])
+
+    # ── N15d: Jurisprudential compliance absent (no parents — evidence) ─────
+    # Per Q6 (α): inverse-attestation pattern. State 1 (doctrine absent) by
+    # default; state 0 when counsel attests SCE/Tetrad applied at original
+    # sentencing (shares n14c attestation — both are jurisprudence-applied
+    # questions about the same sentencing event).
+    # Per Q3 binary collapse: G+E (binding) and M+E (persuasive) both map to
+    # state 0; only "None applied" maps to state 1.
+    cpd15d = TabularCPD(variable='15d', variable_card=2, values=[[0.40], [0.60]])
+
+    # ── N15: Interjurisdictional Tariff Distortion (5 parents) ──────────────
+    # Per CH5 §5.1.15 §7 illustrative CPT (binary collapse, 4 anchors hit):
+    #
+    #   Parent state (N14, 15a, 15b, 15c, 15d) → P(N15=High distortion)
+    #   col 18 (1,0,0,1,0) → 0.40   §7 row 5: LT+V+>3yr+M+E [binary collapse]
+    #   col 19 (1,0,0,1,1) → 0.55   §7 row 6: LT+V+>3yr+None
+    #   col 30 (1,1,1,1,0) → 0.65   §7 row 3: HT+Prop+>1yr+M+E
+    #   col 31 (1,1,1,1,1) → 0.85   §7 row 1: HT+Prop+>1yr+None
+    #
+    # Big-endian column ordering per pgmpy:
+    #   col_idx = state(N14)*16 + state(15a)*8 + state(15b)*4
+    #             + state(15c)*2 + state(15d)*1
+    #
+    # Anchors hit at N14=1 (temporal distortion in play, per §5.1.15 Position
+    # which places N15 downstream of N14). N14=0 columns are reduced versions
+    # (~0.7-0.75× factor) modeling the temporal-correction effect.
+    #
+    # Binary collapse on G+E vs M+E: §5.1.15 §7 distinguishes binding (Gladue+
+    # Ewert) from persuasive (Morris+Ellis) jurisprudence. Per Q3, binary
+    # collapse maps both to "doctrine present" (15d=0). Anchored to M+E
+    # values (more conservative — overestimating distortion is less harmful
+    # than underestimating). G+E rows produce slightly stronger correction
+    # but architecture treats them equivalently.
+    cpd15 = _cpt('15', ['14', '15a', '15b', '15c', '15d'], [
+        # P(N15 = Low distortion): 1 - P(High)
+        [0.93, 0.80, 0.80, 0.60, 0.82, 0.70, 0.70, 0.50,
+         0.80, 0.68, 0.70, 0.50, 0.68, 0.55, 0.50, 0.35,
+         0.90, 0.72, 0.60, 0.45, 0.75, 0.58, 0.55, 0.35,
+         0.70, 0.55, 0.55, 0.35, 0.55, 0.38, 0.35, 0.15],
+        # P(N15 = High distortion) — anchored to §5.1.15 §7
+        [0.07, 0.20, 0.20, 0.40, 0.18, 0.30, 0.30, 0.50,
+         0.20, 0.32, 0.30, 0.50, 0.32, 0.45, 0.50, 0.65,
+         0.10, 0.28, 0.40, 0.55, 0.25, 0.42, 0.45, 0.65,
+         0.30, 0.45, 0.45, 0.65, 0.45, 0.62, 0.65, 0.85],
     ])
 
     # ── N16: Doctrinal Tension (parent: N10) ─────────────────────────────────
@@ -307,14 +459,57 @@ def build_model():
         [0.25, 0.50],     # P(High tension) — unresolved conflict where SCE misapplied
     ])
 
-    # ── N17: Over-Policing & Epistemic Contamination (parent: N13) ───────────
-    # Maps from current N14 (Over-policing), CPT structure preserved
-    # Per CH5 §5.1.17: structural systemic bias (N13/TraceRoute) → over-policing
-    # The current N14 had parents (N7, N8) — restructured to single parent N13
-    # since over-policing in CH5 is conceptually downstream of structural bias.
-    cpd17 = _cpt('17', ['13'], [
-        [0.45, 0.25],     # marginalised from prior (7,8)→(N13) since structural
-        [0.55, 0.75],     # bias drives over-policing in CH5 §5.1.17
+    # ── N17a: Jurisdictional policing disparity (parent: N13 TraceRoute) ─────
+    # Per CH5 §5.1.17 §4 + JP routing decision C3:
+    # TraceRoute (structural systemic bias) conditions the disparity index.
+    # When N13 (TraceRoute) is High, baseline disparity expectation rises.
+    # Conservative defaults per JP M1 confirmation: Moderate when no structural
+    # bias signal, elevated when N13 indicates systemic bias.
+    cpd17a = _cpt('17a', ['13'], [
+        [0.65, 0.40],     # P(disparity Low) — neutral when N13 Low; corrected when High
+        [0.35, 0.60],     # P(disparity High) — rises with structural bias signal
+    ])
+
+    # ── N17b: Enforcement-disparity engagement (no parents — evidence) ───────
+    # Per JP M3: derived from Gladue tab evidence (OR-gate) with counsel
+    # attestation override. The Bayesian network treats this as a root evidence
+    # node; the actual signal is computed app-side and fed at inference time.
+    # Default prior: Low when no Gladue evidence engages §5.1.17 §2 categories.
+    cpd17b = TabularCPD(variable='17b', variable_card=2, values=[[0.65], [0.35]])
+
+    # ── N17c: Non-violent charge density (no parents — auto-computed) ────────
+    # Per JP M2: pattern-matched from criminal record (breaches, AOJ offences,
+    # possession). Default prior reflects baseline expectation across cases.
+    cpd17c = TabularCPD(variable='17c', variable_card=2, values=[[0.65], [0.35]])
+
+    # ── N17d: Surveillance-triggered entries (no parents — auto-computed) ────
+    # Per JP M2: pattern-matched from criminal record (proactive enforcement
+    # offence patterns). Default prior reflects baseline expectation.
+    cpd17d = TabularCPD(variable='17d', variable_card=2, values=[[0.70], [0.30]])
+
+    # ── N17: Over-policing & epistemic contamination (4 parents) ─────────────
+    # Per CH5 §5.1.17 §7 illustrative CPT (anchors match exactly):
+    #   (0,0,0,0) all Low                  → P(contamination) = 0.10
+    #   (1,1,1,1) all High                 → P(contamination) = 0.85  [§7 row 1]
+    #   (0,1,1,1) no disparity, race-eng+  → P(contamination) = 0.70  [§7 row 2]
+    #   (1,0,1,1) high disp, no race-eng   → P(contamination) = 0.55  [§7 row 3]
+    #
+    # 16 parent combinations indexed in pgmpy column order:
+    #   col_idx = state(17a) + state(17b)*2 + state(17c)*4 + state(17d)*8
+    #
+    # Structural weighting per §5.1.17 §5: disparity + race-engagement carry
+    # more weight than record-derived signals alone (charge density, surveillance
+    # entries). Single-parent contributions: N17a/N17b each ~0.30; N17c/N17d
+    # each ~0.20. Pair contributions amplify (interaction effects). Anchor
+    # points hit §5.1.17 §7 exactly; intermediate combinations interpolated
+    # to maintain monotonicity in parent count.
+    cpd17 = _cpt('17', ['17a', '17b', '17c', '17d'], [
+        # P(N17 = Low contamination): 1 - P(High)
+        [0.90, 0.80, 0.80, 0.70, 0.70, 0.45, 0.50, 0.30,
+         0.70, 0.60, 0.60, 0.45, 0.50, 0.25, 0.30, 0.15],
+        # P(N17 = High contamination) — anchored to §5.1.17 §7
+        [0.10, 0.20, 0.20, 0.30, 0.30, 0.55, 0.50, 0.70,
+         0.30, 0.40, 0.40, 0.55, 0.50, 0.75, 0.70, 0.85],
     ])
 
     # ── N18: Gladue/Ewert/Morris/Ellis Profile (parents: N9, N10, N12, N14) ──
@@ -338,10 +533,13 @@ def build_model():
     ])
 
     # Add all CPDs (Node 20 excluded — computed post-VE)
+    # §5.1.17 sub-nodes (17a/b/c/d) and §5.1.14 sub-nodes (14a/b/c/d) included.
     model.add_cpds(
         cpd1, cpd2, cpd3, cpd4, cpd5, cpd6, cpd7, cpd8,
-        cpd9, cpd10, cpd11, cpd12, cpd13, cpd14, cpd15,
-        cpd16, cpd17, cpd18, cpd19
+        cpd9, cpd10, cpd11, cpd12, cpd13,
+        cpd14a, cpd14b, cpd14c, cpd14d, cpd14,
+        cpd15a, cpd15b, cpd15c, cpd15d, cpd15,
+        cpd16, cpd17a, cpd17b, cpd17c, cpd17d, cpd17, cpd18, cpd19
     )
 
     assert model.check_model(), "Model CPDs are inconsistent — check tables."
@@ -371,10 +569,27 @@ def compute_do_risk(posteriors: dict) -> float:
     """
     p = posteriors
 
-    # Record reliability: bail-WCGP cascade + IAC reduce violent history weight
+    # Record reliability: bail-WCGP + IAC + N17 over-policing + N14 temporal
+    # distortion all reduce violent history weight. Each captures a distinct
+    # production-condition distortion mechanism that compromises record
+    # reliability per §5.1.7, §5.1.6, §5.1.17, §5.1.14 respectively.
+    #
+    # Weights (per JP confirmations):
+    #   N7 (bail cascade)        0.35  — strongest per §RM.5
+    #   N6 (IAC)                 0.15  — moderate per §RM.6
+    #   N17 (over-policing)      0.30  — per §5.1.17 Q2
+    #   N14 (temporal distortion) 0.20  — per §5.1.14 Q4
+    # Total max discount: 1.0 (when all four signals = 1.0)
+    # Floor at 0.30 prevents complete collapse — record retains meaningful
+    # weight even under extreme distortion (avoids divide-by-zero pathologies
+    # in downstream weighted aggregation).
     record_reliability = float(np.clip(
-        1.0 - 0.35 * p.get(7, 0.5) - 0.15 * p.get(6, 0.5),
-        0.40, 1.0
+        1.0
+        - 0.35 * p.get(7, 0.5)    # N7  bail-WCGP cascade
+        - 0.15 * p.get(6, 0.5)    # N6  IAC
+        - 0.30 * p.get(17, 0.5)   # N17 over-policing
+        - 0.20 * p.get(14, 0.5),  # N14 temporal distortion
+        0.30, 1.0
     ))
 
     # Tool validity: N5 (invalid risk tools) discounts N3 (sexual offence profile)
@@ -391,20 +606,31 @@ def compute_do_risk(posteriors: dict) -> float:
         0.25 * p.get(18, 0.5)                          # N18 SCE Profile audit (now distortion-side)
     )
 
-    # Distortion: systemic-distortion-layer nodes downweight effective risk
-    # Updated per CH5 canonical taxonomy
+    # Distortion: systemic-distortion-layer nodes downweight effective risk.
+    # Updated per CH5 canonical taxonomy + §5.1.17 N17 + §5.1.14 N14 ops.
+    # 
+    # NOTE: N17 (over-policing) and N14 (temporal distortion) BOTH excluded
+    # from dst because they now contribute via record_reliability above.
+    # Including them in both would double-count the production-condition
+    # distortion signal. Weights previously assigned have been redistributed:
+    #   N17 0.10 → +0.05 to N13, +0.05 to N10 (Stage 1 of N17 build)
+    #   N14 0.06 → +0.04 to N13, +0.02 to N10 (per JP Q5)
+    # Total redistribution: N13 gained +0.09; N10 gained +0.07.
+    # This preserves total distortion-side weight at ~1.0 while routing both
+    # N17 and N14 effects through record_reliability where §5.1.17 §6 and
+    # §5.1.14 §6 doctrinally locate them ("Prior Record Reliability Modifier").
     dst = (
         0.18 * posteriors.get(5, 0.5) +    # N5  invalid risk tools
         0.12 * posteriors.get(6, 0.5) +    # N6  IAC
         0.08 * posteriors.get(7, 0.5) +    # N7  bail-WCGP cascade
         0.05 * posteriors.get(9, 0.5) +    # N9  IGT/treatment (mitigation)
-        0.18 * posteriors.get(10, 0.5) +   # N10 SCE misapplication
+        0.25 * posteriors.get(10, 0.5) +   # N10 SCE misapplication (+0.02 from N14)
         0.05 * posteriors.get(12, 0.5) +   # N12 judging-the-judge
-        0.10 * posteriors.get(13, 0.5) +   # N13 TraceRoute
-        0.06 * posteriors.get(14, 0.5) +   # N14 temporal distortion (linear part)
+        0.19 * posteriors.get(13, 0.5) +   # N13 TraceRoute (+0.04 from N14)
         0.04 * posteriors.get(15, 0.5) +   # N15 tariff distortion
-        0.04 * posteriors.get(16, 0.5) +   # N16 doctrinal tension
-        0.10 * posteriors.get(17, 0.5)     # N17 over-policing
+        0.04 * posteriors.get(16, 0.5)     # N16 doctrinal tension
+        # N14 EXCLUDED — contributes via record_reliability per §5.1.14 §6
+        # N17 EXCLUDED — contributes via record_reliability per §5.1.17 §6
         # N19 (collider bias) intentionally excluded — its effect is on
         # the inference structure itself, not directly on the DO posterior
     )
@@ -433,17 +659,24 @@ def query_do_risk(engine, evidence: dict) -> dict:
     Returns dict of {node_id: P(High)} for all 20 nodes.
     """
     results = {}
-    ve_nodes = [str(i) for i in range(1, 20)]
+    # Standard nodes 1-19 plus §5.1.17 (17a/b/c/d), §5.1.14 (14a/b/c/d),
+    # and §5.1.15 (15a/b/c/d) sub-nodes
+    ve_nodes = ([str(i) for i in range(1, 20)]
+                + ['17a', '17b', '17c', '17d']
+                + ['14a', '14b', '14c', '14d']
+                + ['15a', '15b', '15c', '15d'])
 
     for node in ve_nodes:
+        # Sub-nodes (17a/17b/17c/17d) keyed by string; main nodes by int
+        node_key = node if not node.isdigit() else int(node)
         if node in evidence:
-            results[int(node)] = float(evidence[node])
+            results[node_key] = float(evidence[node])
             continue
         try:
             q = engine.query(variables=[node], evidence=evidence, show_progress=False)
-            results[int(node)] = float(q.values[1])
+            results[node_key] = float(q.values[1])
         except Exception:
-            results[int(node)] = 0.5
+            results[node_key] = 0.5
 
     results[20] = compute_do_risk(results)
     return results
@@ -476,4 +709,19 @@ def get_default_priors() -> dict:
         18: 0.40,   # SCE Profile audit
         19: 0.55,   # Collider bias
         20: 0.50,   # DO designation risk
+        # §5.1.17 sub-nodes — defaults reflect conservative starting points
+        "17a": 0.35,  # Jurisdictional policing disparity (M1: Moderate default)
+        "17b": 0.35,  # Enforcement-disparity engagement (low until Gladue evidence)
+        "17c": 0.35,  # Non-violent charge density (auto-computed from record)
+        "17d": 0.30,  # Surveillance-triggered entries (auto-computed from record)
+        # §5.1.14 sub-nodes — defaults reflect conservative starting points
+        "14a": 0.35,  # Sentencing era severity (default Low/Moderate; year-driven)
+        "14b": 0.35,  # Historical mandatory minimum (offence+year derived)
+        "14c": 0.45,  # SCE absent at sentencing (year-derived; pre-2012 → absent)
+        "14d": 0.40,  # Judicial competence absent (downstream of N10 misapp)
+        # §5.1.15 sub-nodes — defaults reflect conservative starting points
+        "15a": 0.35,  # Tariff jurisdiction (default LT until detected/attested)
+        "15b": 0.45,  # Tariff-sensitive offence (offence-text derived)
+        "15c": 0.40,  # Tariff-sensitive sentence length (sentence-type derived)
+        "15d": 0.55,  # Doctrine absent (default absent until SCE attested)
     }
