@@ -618,11 +618,56 @@ def build_model():
          0.20, 0.40, 0.50, 0.70, 0.40, 0.55, 0.75, 0.95],
     ])
 
-    # ── N19: Collider Bias (parents: N14, N17) ───────────────────────────────
-    # Maps from current N17 (Collider bias), CPT structure preserved
+    # ── N19: Collider Bias (parents: N14, N17) ──────────────────────────────
+    # Per CH5 §5.1.19 — Inference Integrity and Causal Diagnostics layer.
+    #
+    # §5.1.19 §6 illustrative CPT (Over-Policing × Case Complexity):
+    #   Low  × Low   → Collider Bias Low      (P ≈ 0.25)
+    #   Low  × High  → Collider Bias Moderate (P ≈ 0.50)
+    #   High × Low   → Collider Bias Moderate (P ≈ 0.50)
+    #   High × High  → Collider Bias High     (P ≈ 0.85)
+    #
+    # Big-endian ordering on (N14, N17) per pgmpy:
+    #   col 0 (0,0) → 0.25  Both Low (no collider activation)
+    #   col 1 (0,1) → 0.50  Over-policing only (one parent)
+    #   col 2 (1,0) → 0.50  Case complexity only (one parent)
+    #   col 3 (1,1) → 0.85  Both High (full collider activation per §6)
+    #
+    # Parent mapping (Q3=α):
+    #   N17 (over-policing) → §6 "Over-Policing Intensity" — clean mapping
+    #   N14 (temporal distortion) → §6 "Case Complexity" — proxy mapping.
+    #     §4 describes Case Complexity as "severity or complexity driving
+    #     arrest, detention, or prosecution". N14's era-of-sentencing
+    #     severity component (Antic-era pre-2017 vs post-Antic) captures
+    #     historical case-complexity drivers — sentences from severe-tariff
+    #     eras involved categorically more complex prosecutorial dynamics
+    #     and procedural exposure. This is a doctrinal proxy, not a
+    #     definitional match.
+    #
+    # Architectural note (Q1=α): §5.1.19 §4 lists three parents
+    # (Over-Policing, Case Complexity, System-Entry Filter), but §6's
+    # illustrative CPT uses only two. The right reading: System-Entry
+    # Filter is the colliding variable itself — the variable being
+    # conditioned on — not a causal parent of the bias. DO sentencing by
+    # definition conditions on system-entry events (the criminal record
+    # itself), so System-Entry Filter is implicitly = Yes throughout. §6's
+    # 2-parent table is treated as canonical CPT specification.
+    #
+    # Integration with compute_do_risk (Q4=C):
+    # N19 is intentionally EXCLUDED from compute_do_risk's headline
+    # computation per §5.1.19 §1: "Its function is not to add evidence
+    # to the inference. It is to flag that the inference drawn from the
+    # criminal record may be systematically unreliable." The §8 reading
+    # ("down-weight contributions from upstream variables") is operationalised
+    # via a secondary collider-discounted computation that callers can
+    # invoke by passing collider_discount=True to compute_do_risk. This
+    # preserves §1's epistemic posture (headline posterior unchanged)
+    # while making §8's mechanism available for contingent display.
     cpd19 = _cpt('19', ['14', '17'], [
-        [0.55, 0.40, 0.42, 0.28],
-        [0.45, 0.60, 0.58, 0.72],
+        # P(Collider Bias = Low) = 1 - P(High)
+        [0.75, 0.50, 0.50, 0.15],
+        # P(Collider Bias = High) — anchored to §5.1.19 §6
+        [0.25, 0.50, 0.50, 0.85],
     ])
 
     # Add all CPDs (Node 20 excluded — computed post-VE)
@@ -641,7 +686,7 @@ def build_model():
     return model
 
 
-def compute_do_risk(posteriors: dict) -> float:
+def compute_do_risk(posteriors: dict, collider_discount: bool = False) -> float:
     """
     Compute Node 20 (DO designation risk) post-VE using calibrated formula.
 
@@ -649,7 +694,7 @@ def compute_do_risk(posteriors: dict) -> float:
     
     Step 1 — Record reliability multiplier (CH5 §5.1.7 + §RM.5/§RM.6):
       Where bail-denial cascade (N7) or IAC (N6) is High, violent history
-      carries reduced evidentiary weight. record_reliability ∈ [0.40, 1.0]
+      carries reduced evidentiary weight. record_reliability ∈ [0.30, 1.0]
     
     Step 2 — Tool validity (Ewert): N5 conditions weight on N3 risk-tool outputs
     
@@ -659,6 +704,18 @@ def compute_do_risk(posteriors: dict) -> float:
       effective DO risk because it flags evidentiary contamination
     
     Step 5 — Age burnout multiplier from N14 (Temporal Distortion)
+    
+    Parameters:
+      posteriors: dict mapping node IDs to posterior probabilities
+      collider_discount: when True, applies a multiplicative discount to
+        the final DO posterior scaled to N19's posterior, per §5.1.19 §8
+        ("final risk scores reflect causal uncertainty rather than
+        inflated confidence"). The discount factor is (1 - 0.30 × N19_post),
+        producing a 7.5% reduction at §6 baseline (N19=0.25) up to 25.5%
+        at §6 peak (N19=0.85). Used to compute the secondary collider-
+        discounted risk display when the collider structure is active.
+        Default False preserves §5.1.19 §1 ("not to add evidence to the
+        inference") for the headline DO posterior.
     
     References: Tolppanen Report (2018); Feeley (1979); R v Antic [2017] SCC 27
     """
@@ -746,7 +803,31 @@ def compute_do_risk(posteriors: dict) -> float:
     burnout_mult = float(np.clip(1.0 - 1.70 * max(0.0, n14 - 0.65), 0.35, 1.0))
     raw = raw * burnout_mult
 
-    return float(np.clip(raw * (1.0 - 0.68 * dst) + 0.03, 0.05, 0.93))
+    final_risk = float(np.clip(raw * (1.0 - 0.68 * dst) + 0.03, 0.05, 0.93))
+
+    # ── §5.1.19 N19 collider-bias discount (Q4=C secondary) ─────────────────
+    # Per §5.1.19 §1 + §8: when caller invokes collider_discount=True,
+    # the final DO posterior is multiplicatively reduced by a factor scaled
+    # to N19's posterior. This implements §8's "final risk scores reflect
+    # causal uncertainty rather than inflated confidence" while preserving
+    # the headline posterior unchanged for default callers (§1: "not to
+    # add evidence to the inference").
+    #
+    # Discount schedule (α = 0.30):
+    #   N19 = 0.25 (§6 baseline)  → ×0.925  (-7.5%)
+    #   N19 = 0.50 (§6 mid)       → ×0.85   (-15%)
+    #   N19 = 0.85 (§6 peak)      → ×0.745  (-25.5%)
+    #
+    # Magnitude reflects the §5.1.19 §2 narrative: when over-policing and
+    # case-complexity proxies are jointly high, the criminal record partly
+    # measures surveillance rather than propensity, so the inference drawn
+    # from it warrants meaningful (but not total) downward adjustment.
+    if collider_discount:
+        n19_post = posteriors.get(19, 0.30)
+        collider_factor = float(np.clip(1.0 - 0.30 * n19_post, 0.50, 1.0))
+        final_risk = float(np.clip(final_risk * collider_factor, 0.05, 0.93))
+
+    return final_risk
 
 
 def get_inference_engine(model):

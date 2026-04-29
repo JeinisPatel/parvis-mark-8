@@ -837,6 +837,9 @@ def _init():
             "n18a_counsel_attestation":False,  # no Morris/Ellis SCE precedent
             "n18b_counsel_attestation":False,  # SCE absent in reasons aggregate
             "n18c_counsel_attestation":False,  # SCE substance nominal-or-absent
+            # §5.1.19 N19 collider-bias secondary computation slots (Q4=C)
+            "n19_collider_signal":None,        # set by run_inf via _n19_collider_signal
+            "n19_discounted_risk":None,        # set by run_inf via compute_do_risk(collider_discount=True)
             "sce_checked":set(),"sce_values":{},"manual_ev":{},"doc_adj":{},"posteriors":{},
             "qdiags":{},"conn":"moderate","enex":"relevant","scefw":"morris","doc_res":[],"qbism_plain":"","qbism_dm":{},
             "case_id":"","case_jur":""}
@@ -1580,6 +1583,59 @@ def _compute_n18_evidence() -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.1.19 N19 collider-bias signal computation (Q6=α, app-side complement)
+#
+# Per JP confirmation Q6=α: pattern-detection helper independent of the BN
+# posterior. The BN posterior P(N19=High) is computed by Variable Elimination
+# from the (N14, N17) parents per §5.1.19 §6 illustrative CPT. This helper
+# adds an INDEPENDENT app-side signal that fires when both upstream variables
+# are jointly elevated above 0.60 — making the structural condition visible
+# without requiring the user to interpret the probabilistic posterior.
+#
+# Per §5.1.19 §1, this signal does not "add evidence" to inference. It
+# surfaces the structural condition under which the inference drawn from
+# the criminal record is subject to collider bias. The threshold of 0.60
+# is calibrated to the §6 illustrative CPT: at both parents = 0.60, the
+# joint adverse condition is well above the (Low, Low) baseline column
+# while still permitting the user to identify the elevated structural
+# condition before either parent reaches saturation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Joint-elevation threshold for app-side collider signal
+_N19_JOINT_THRESHOLD = 0.60
+
+
+def _n19_collider_signal(posteriors: dict) -> dict:
+    """
+    §5.1.19 N19 — App-side collider-bias signal.
+
+    Returns a dict describing the structural collider condition independent
+    of the BN posterior. The BN posterior on N19 is computed by VE; this
+    helper provides a complementary pattern-detection check.
+
+    Returns:
+      {
+        "active": bool,       # both N14 and N17 ≥ threshold
+        "n14": float,         # N14 posterior
+        "n17": float,         # N17 posterior
+        "n19_post": float,    # N19 posterior from BN (for downstream use)
+        "threshold": float,   # _N19_JOINT_THRESHOLD
+      }
+    """
+    n14 = float(posteriors.get(14, 0.5))
+    n17 = float(posteriors.get(17, 0.5))
+    n19_post = float(posteriors.get(19, 0.30))
+    active = (n14 >= _N19_JOINT_THRESHOLD) and (n17 >= _N19_JOINT_THRESHOLD)
+    return {
+        "active": active,
+        "n14": n14,
+        "n17": n17,
+        "n19_post": n19_post,
+        "threshold": _N19_JOINT_THRESHOLD,
+    }
+
+
 # ── Inference ─────────────────────────────────────────────────────────────────
 def run_inf():
     from model import compute_do_risk
@@ -1635,6 +1691,18 @@ def run_inf():
             hard_ev[sub_nid] = state
 
     post=query_do_risk(st.session_state.engine, hard_ev)
+
+    # ── §5.1.19 N19 collider-bias secondary computation (Q4=C) ─────────────
+    # Per §5.1.19 §1, the headline DO posterior in post[20] is unchanged.
+    # Per §5.1.19 §8, a secondary collider-discounted risk is computed for
+    # contingent display when the collider structure is active. The
+    # discount is multiplicative on the final risk, scaled to N19's
+    # posterior — see model.py compute_do_risk(collider_discount=True).
+    from model import compute_do_risk as _cdr  # local import for the kwarg path
+    _collider_signal = _n19_collider_signal(post)
+    _discounted = _cdr(post, collider_discount=True)
+    st.session_state["n19_collider_signal"] = _collider_signal
+    st.session_state["n19_discounted_risk"] = float(_discounted)
 
     # Step 2: Apply profile evidence as direct continuous posterior values
     # Profile_ev represents the case-specific probability for each node —
@@ -2691,6 +2759,113 @@ with TABS[0]:
             f"</div>",
             unsafe_allow_html=True,
         )
+
+    # ── Zone 2.9: §5.1.19 N19 collider-bias breakdown (if active) ────────
+    # Conditional render: appears when N19 posterior ≥ 0.50 OR the app-side
+    # joint-elevation signal is active. Per §5.1.19 §1, the headline DO
+    # posterior is not modified — the secondary discounted figure is shown
+    # alongside as a contingent display per Q4=C.
+    _n19_post = float(P.get(19, 0.30))
+    _n19_signal_dict = st.session_state.get("n19_collider_signal") or {}
+    _n19_signal_active = bool(_n19_signal_dict.get("active", False))
+    _n19_active = (_n19_post >= 0.50) or _n19_signal_active
+    if _n19_active and not _empty:
+        _disc_risk_summary = st.session_state.get("n19_discounted_risk")
+        _headline_summary = float(P.get(20, 0.30))
+        _n14_p_summary = float(P.get(14, 0.5))
+        _n17_p_summary = float(P.get(17, 0.5))
+
+        st.markdown(
+            "<div style='margin-top:24px;font-size:0.92rem;font-weight:500;"
+            "font-family:DM Sans, sans-serif;color:#1A1A1A;letter-spacing:-0.005em'>"
+            "§5.1.19 collider-bias detection — inference integrity check"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Per Chapter 5 §5.1.19 §1, N19 flags when the inference drawn "
+            "from the criminal record may be systematically unreliable due "
+            "to the geometry of the reasoning itself — without adding "
+            "evidence to the headline posterior. The secondary discounted "
+            "figure operationalises §5.1.19 §8 (\"final risk scores reflect "
+            "causal uncertainty rather than inflated confidence\") for "
+            "contingent display."
+        )
+
+        _n19_color = "#185FA5"
+
+        # Three tiles: N14, N17 (parents), N19 (collider posterior)
+        _tile_cols = st.columns(3)
+        _tile_data = [
+            ("N14", "Temporal distortion (Case-Complexity proxy)", _n14_p_summary),
+            ("N17", "Over-policing intensity",                     _n17_p_summary),
+            ("N19", "Collider-bias detection",                     _n19_post),
+        ]
+        for _col, (_lbl, _desc, _val) in zip(_tile_cols, _tile_data):
+            with _col:
+                _state_high = _val >= 0.60
+                _state_color = "#A32D2D" if _state_high else "#9E9E9E"
+                _bg_color = "#FAEEDA" if _state_high else "#FBFAF7"
+                _border_color = "#E5CC95" if _state_high else "#E0DDD6"
+                st.markdown(
+                    f"<div style='background:{_bg_color};border:1px solid {_border_color};"
+                    f"border-radius:8px;padding:10px 12px;height:100%;min-height:110px'>"
+                    f"<div style='display:flex;align-items:baseline;justify-content:space-between;"
+                    f"margin-bottom:6px'>"
+                    f"<span style='font-family:JetBrains Mono,monospace;font-size:0.72rem;"
+                    f"font-weight:600;color:{_n19_color};background:{_n19_color}18;"
+                    f"padding:2px 6px;border-radius:4px'>{_lbl}</span>"
+                    f"<span style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                    f"font-weight:600;color:{_state_color}'>{'High' if _state_high else 'Low'}</span>"
+                    f"</div>"
+                    f"<div style='font-size:0.78rem;font-weight:500;color:#1A1A1A;"
+                    f"line-height:1.35;margin-bottom:6px'>{_desc}</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:1rem;"
+                    f"font-weight:600;color:{_n19_color}'>{_val*100:.1f}%</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Headline + discounted comparison (the Q4=C contingent display)
+        if _disc_risk_summary is not None:
+            _delta_pp_s = (_disc_risk_summary - _headline_summary) * 100
+            _delta_color = "#A32D2D" if _delta_pp_s <= -1.0 else "#9E9E9E"
+            st.markdown(
+                f"<div style='margin-top:12px;padding:14px 18px;"
+                f"background:linear-gradient(90deg, #FBFAF7 0%, #F6F4F0 100%);"
+                f"border:1px solid #E5E0D8;border-radius:8px'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:center;"
+                f"flex-wrap:wrap;gap:12px'>"
+                f"<div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                f"color:#1A1A1A;font-size:0.94rem;margin-bottom:2px'>"
+                f"DO posterior — headline vs collider-discounted (§1 vs §8)"
+                f"</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.76rem;color:#707070'>"
+                f"Headline preserved per §1; secondary contingent per §8."
+                f"</div>"
+                f"</div>"
+                f"<div style='display:flex;align-items:baseline;gap:14px'>"
+                f"<div style='text-align:right'>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+                f"color:#888'>HEADLINE</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:1.15rem;"
+                f"font-weight:600;color:#1A1A1A'>{_headline_summary*100:.1f}%</div>"
+                f"</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:1.1rem;"
+                f"color:#999'>→</div>"
+                f"<div style='text-align:right'>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
+                f"color:{_delta_color}'>DISCOUNTED ({_delta_pp_s:+.1f}pp)</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:1.15rem;"
+                f"font-weight:600;color:{_delta_color}'>{_disc_risk_summary*100:.1f}%</div>"
+                f"</div>"
+                f"</div>"
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
     st.markdown("---")
 
@@ -4330,6 +4505,145 @@ with TABS[8]:
             <div style="height:4px;background:#eee;border-radius:2px;margin-top:3px">
               <div style="width:{p*100:.0f}%;height:100%;background:{col};border-radius:2px"></div>
             </div></div>""",unsafe_allow_html=True)
+
+    # ── §5.1.19 N19 collider-bias methodology expander ─────────────────────
+    # Sits on Inference tab (where structural-distortion content lives)
+    # alongside the per-node posterior grid. Surfaces both the BN posterior
+    # mechanism (§6 CPT) and the Q4=C secondary discount mechanism (§8).
+    if not _empty:
+        with st.expander("📚 §5.1.19 collider-bias detection — how N19 is computed and applied"):
+            _signal = st.session_state.get("n19_collider_signal") or {}
+            _disc_risk = st.session_state.get("n19_discounted_risk")
+            _n14_p = float(P.get(14, 0.5))
+            _n17_p = float(P.get(17, 0.5))
+            _n19_p = float(P.get(19, 0.30))
+            _headline = float(P.get(20, 0.30))
+
+            st.markdown(
+                "<div style='font-family:Fraunces,serif;font-style:italic;"
+                "font-size:0.88rem;color:#3A3A3A;line-height:1.55;margin-bottom:14px'>"
+                "Per Chapter 5 §5.1.19 §1, N19 surfaces collider bias arising "
+                "when sentencing inference conditions on system-entry variables "
+                "(arrest, charge, conviction) that are simultaneously caused "
+                "by upstream factors including over-policing intensity and "
+                "case complexity. The architectural commitment is "
+                "<strong style='font-weight:500;color:#1A1A1A;font-style:normal'>"
+                "non-evidentiary</strong> — N19 does not add evidence to the "
+                "headline DO posterior. Instead, it flags when the inference "
+                "drawn from the criminal record may be systematically "
+                "unreliable due to the geometry of the reasoning itself "
+                "(Berkson&apos;s paradox)."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            # §6 CPT mechanism card
+            _cpt_color = "#A32D2D" if _n19_p >= 0.50 else "#185FA5"
+            st.markdown(
+                f"<div style='border-left:3px solid {_cpt_color};padding:.6rem .9rem;"
+                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                f"color:#1A1A1A;font-size:0.94rem'>BN posterior — §5.1.19 §6 mechanism</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
+                f"color:{_cpt_color};font-weight:600'>"
+                f"P(N19=High) = {_n19_p*100:.1f}%</div>"
+                f"</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#5A5A5A;margin-top:6px;line-height:1.5'>"
+                f"Computed by Variable Elimination over §5.1.19 §6&apos;s 2-parent CPT: "
+                f"P(N19=High) at (Over-Policing × Case Complexity) = "
+                f"(L,L)→0.25, (L,H)→0.50, (H,L)→0.50, (H,H)→0.85. "
+                f"N17 (over-policing) is the §6 first parent; N14 (temporal "
+                f"distortion) is the doctrinal proxy for §6&apos;s "
+                f"&quot;Case Complexity&quot; — N14&apos;s era-of-sentencing "
+                f"severity captures historical case-complexity drivers. "
+                f"Current parent posteriors: N14={_n14_p*100:.1f}%, "
+                f"N17={_n17_p*100:.1f}%."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # App-side joint-elevation signal card
+            _signal_active = bool(_signal.get("active", False))
+            _signal_color = "#A32D2D" if _signal_active else "#3B6D11"
+            _signal_text = "ACTIVE — both parents above threshold" if _signal_active else "Inactive"
+            _threshold = _signal.get("threshold", 0.60)
+            st.markdown(
+                f"<div style='border-left:3px solid {_signal_color};padding:.6rem .9rem;"
+                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                f"color:#1A1A1A;font-size:0.94rem'>App-side joint-elevation signal (Q6=α)</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
+                f"color:{_signal_color};font-weight:600'>{_signal_text}</div>"
+                f"</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#5A5A5A;margin-top:6px;line-height:1.5'>"
+                f"Independent pattern-detection check: fires when both N14 "
+                f"and N17 are jointly elevated above threshold "
+                f"({_threshold:.2f}). Complements the BN posterior by "
+                f"making the structural condition visible without requiring "
+                f"the user to interpret the probabilistic computation. "
+                f"Per §5.1.19 §1, this signal does not add evidence — it "
+                f"surfaces the structural condition under which collider "
+                f"bias is doctrinally implicated."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # §8 secondary-discount mechanism card
+            if _disc_risk is not None:
+                _delta_pp = (_disc_risk - _headline) * 100
+                _disc_color = "#A32D2D" if _delta_pp <= -1.0 else "#9E9E9E"
+                st.markdown(
+                    f"<div style='border-left:3px solid {_disc_color};padding:.6rem .9rem;"
+                    f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                    f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                    f"color:#1A1A1A;font-size:0.94rem'>Secondary collider-discounted risk (Q4=C)</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
+                    f"color:{_disc_color};font-weight:600'>"
+                    f"Headline {_headline*100:.1f}% &nbsp;→&nbsp; Discounted "
+                    f"{_disc_risk*100:.1f}% &nbsp;({_delta_pp:+.1f}pp)</div>"
+                    f"</div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:0.78rem;color:#5A5A5A;margin-top:6px;line-height:1.5'>"
+                    f"Per §5.1.19 §8, when collider bias is active the final "
+                    f"risk score is multiplicatively discounted by "
+                    f"(1 - 0.30 × N19) to reflect causal uncertainty rather "
+                    f"than inflated confidence. At §6 baseline (N19=0.25) "
+                    f"the discount is 7.5%; at §6 peak (N19=0.85) the "
+                    f"discount is 25.5%. This number is "
+                    f"<strong style='font-weight:500;color:#1A1A1A;"
+                    f"font-style:normal'>contingent</strong> — it is "
+                    f"displayed alongside the headline rather than replacing "
+                    f"it, preserving the §5.1.19 §1 commitment that N19 does "
+                    f"not add evidence to the inference."
+                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown(
+                "<div style='font-family:Fraunces,serif;font-style:italic;"
+                "font-size:0.80rem;color:#707070;margin-top:14px;line-height:1.55'>"
+                "<strong style='font-weight:500;color:#3A3A3A;font-style:normal'>"
+                "Doctrinal note.</strong> "
+                "§5.1.19 §1 (&quot;not to add evidence to the inference&quot;) "
+                "and §8 (&quot;final risk scores reflect causal uncertainty&quot;) "
+                "are reconciled by the architecture: the §1 commitment is "
+                "preserved at the headline-posterior level, and the §8 "
+                "mechanism operates at the secondary-display level. Defence "
+                "counsel reviewing the architecture&apos;s output sees both "
+                "numbers and can address the inference-integrity concern in "
+                "submissions without the architecture pre-empting the legal "
+                "argument with a single contestable figure."
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
 # ── T7: QBism + Bloch sphere ─────────────────────────────────────────────────
 with TABS[11]:
