@@ -5601,11 +5601,12 @@ with TABS[4]:
                 f"font-size:0.80rem;color:#707070;margin-top:12px;line-height:1.55;"
                 f"padding-top:10px;border-top:1px solid {_n7_border}'>"
                 f"Each conviction is graded against §5.1.7's tri-state ordinal "
-                f"(Unmodified / Discounted / Heavily Discounted) by combining "
-                f"its own bail-denial flag with the network N7 posterior "
-                f"({_n7_post_now*100:.0f}%). This node never removes convictions; "
-                f"it qualifies how they may be used. Multipliers — 1.00 / 0.60 / 0.30 — "
-                f"are conservative operationalisations of the §5.1.7 ordinal grades."
+                f"(Unmodified / Discounted / Heavily Discounted) on its own facts "
+                f"— the conviction's own bail-denial signal, with cascade propagation "
+                f"from earlier tainted convictions where applicable per §RM.5. "
+                f"This node never removes convictions; it qualifies how they may be "
+                f"used. Multipliers — 1.00 / 0.60 / 0.30 — are conservative "
+                f"operationalisations of the §5.1.7 ordinal grades."
                 f"</div>"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -5614,20 +5615,24 @@ with TABS[4]:
             # Methodology disclosure expander
             with st.expander("Methodology — N7 reliability modifier", expanded=False):
                 st.markdown("""
-**Mechanism (Chapter 5 §5.1.7).** The bail-denial cascade node (N7) tracks the procedural conditions under which prior convictions were produced. Where bail was denied and ineffective representation, absent social context evidence, or marginalisation cluster, the network's posterior at N7 rises and the resulting convictions' evidentiary reliability is qualified — not removed.
+**Mechanism (Chapter 5 §5.1.7).** The bail-denial cascade node (N7) tracks the procedural conditions under which prior convictions were produced. Where bail was denied and ineffective representation, absent social context evidence, or marginalisation cluster, the conviction's evidentiary reliability is qualified — not removed.
 
-**Per-conviction grading.** For each conviction, the N7 grade is determined by the maximum of (a) the conviction's own `adj.bail` value (set when the conviction was added) and (b) the network's current N7 posterior. This is the most conservative reading: a conviction is at least as discounted as either its own indicator or the case-wide cascade state requires.
+**Per-conviction grading.** Each conviction is graded on its own facts. The architecture reads the conviction's own `adj.bail` value (set when the conviction was added) and applies the threshold logic below. Per §5.1.7, the unit of analysis is the specific guilty plea produced under coercive procedural conditions, not the offender's record as a whole — convictions produced under fair conditions are not discounted on the basis of cascade conditions affecting other convictions on the record.
+
+**Cascade propagation (§RM.5).** Where Conviction A on the record has been graded *Discounted* or *Heavily Discounted*, and a subsequent Conviction B has its own affirmative bail-denial signal, the architecture recognises that the bail conditions affecting Conviction B may themselves have been conditioned by Conviction A's presence on the record (per *R v Antic* on prior records and bail). Conviction B's bail-denial signal is multiplied by a propagation factor before threshold logic — 1.15 for upstream *Discounted*, 1.30 for upstream *Heavily Discounted*. Where multiple upstream tainted convictions exist, only the strongest factor is applied. Propagation requires the downstream conviction to have its own affirmative signal — bail granted on Conviction B breaks the chain.
 
 **Thresholds.**
-- Combined indicator < 0.30 → **Unmodified** (multiplier 1.00)
-- 0.30 ≤ combined ≤ 0.65 → **Discounted** (multiplier 0.60)
-- Combined > 0.65 → **Heavily Discounted** (multiplier 0.30)
+- Per-conviction signal (after any propagation) < 0.30 → **Unmodified** (multiplier 1.00)
+- 0.30 ≤ signal ≤ 0.65 → **Discounted** (multiplier 0.60)
+- Signal > 0.65 → **Heavily Discounted** (multiplier 0.30)
 
 **Aggregate.** The N7-adjusted record weight is the mean across convictions of (cal_weight × N7_multiplier). The nominal record weight is the mean of cal_weight alone. The difference is the N7 re-weighting effect on the record as a whole.
 
-**Doctrinal source.** *R v Antic* [2017] SCC 27 (bail jurisprudence); Tolppanen Report (2018) on bail-denial cascade dynamics; Chapter 5 §5.1.7 (Wrongful Conviction Guilty Plea cascade modelling).
+**Relation to the jump principle.** This grading also feeds the jump principle's own_ceiling computation: a conviction graded *Heavily Discounted* contributes to forward contamination at 30% of nominal anchoring weight (§RM.5.5), reflecting the architecture's prior judgment that the conviction's severity reflects cascade contamination rather than legitimate sentencing assessment.
 
-**Scope of this implementation.** This is the Node 7 distortion only. The full Tetrad of distortions (N6 IAC, N14 temporal, N15 jurisdictional, N17 over-policing, N18 SCE integration audit) extends the same architectural pattern in subsequent implementation work.
+**Doctrinal source.** *R v Antic* [2017] SCC 27 (bail jurisprudence); Tolppanen Report (2018) on bail-denial cascade dynamics; Chapter 5 §5.1.7 (Wrongful Conviction Guilty Plea cascade modelling); Chapter 3 §3.4.5 (inferential inertia) and §3.5.3 (jump principle) for the doctrinal substrate of cascade propagation; Appendix RM §RM.5 for the operational specification.
+
+**Scope of this implementation.** This is the Node 7 distortion only. The full set of cascade distortions (N6 IAC, N14 over-policing, N15 mandatory-minimum-era anchoring, N17 collider bias, N18 dynamic risk integration) extends the same architectural pattern in subsequent implementation work.
                 """)
 
             # ── Jump Principle panel (Ch 3 §3.5.3) ──────────────────────────
@@ -5720,7 +5725,7 @@ with TABS[4]:
                     st.markdown("""
 **Mechanism (Chapter 3 §3.5.3).** *"Prior sentences, once imposed, function as baseline reference points for subsequent legal decisions regardless of whether their original severity reflected contemporaneous doctrine, proportionality principles, or systemic context. Inflated past sentences thereby become anchors for future escalation, producing recursive severity over time."*
 
-**Per-conviction ceiling.** For each conviction, an *own ceiling effect* is computed from three factors:
+**Per-conviction ceiling.** For each conviction, an *own ceiling effect* is computed from four factors:
 
 1. **Sentence inflation factor** — keyed on sentence type. Federal custody (2+ years): 0.20. Provincial custody (< 2 years): 0.10. CSO: 0.03. Probation: 0.01. Fine/discharge: 0.0. Time served: 0.05.
 
@@ -5728,15 +5733,19 @@ with TABS[4]:
 
 3. **Gladue-compliance multiplier** — when this conviction's `adj.gladue` exceeds 0.30 (Gladue not substantively applied at original sentencing), ×1.4 per §3.5.4. Otherwise ×1.0.
 
-`own_ceiling = sentence_inflation × era × gladue_compliance`
+4. **N7 reliability weight (§RM.5.5)** — the conviction's own_ceiling is weighted by its N7 reliability grade. *Unmodified* contributes at full weight (×1.00); *Discounted* at ×0.60; *Heavily Discounted* at ×0.30. This nesting reflects the doctrinal commitment that a conviction whose severity reflects cascade contamination should not anchor subsequent severity at full strength.
 
-**Cumulative inheritance.** Convictions are processed in chronological order. Each conviction's *inherited ceiling* is the sum of all prior convictions' own ceilings, capped at 0.40 (40 percentage points). The first (earliest) conviction has zero inherited ceiling.
+`own_ceiling = sentence_inflation × era × gladue_compliance × N7_weight`
+
+**Cumulative inheritance.** Convictions are processed in chronological order. Each conviction's *inherited ceiling* is the sum of all prior convictions' weighted own_ceilings, capped at 0.40 (40 percentage points). The first (earliest) conviction has zero inherited ceiling.
 
 **N2 shift.** The cumulative ceiling at end-of-record (most recent inherited + own) is multiplied by 0.5 and added to N2's calibrated input. Maximum N2 upward shift is 0.20 (20 percentage points), reflecting the conservative position that anchoring contributes to but does not dominate the violent-history posterior.
 
-**Doctrinal source.** Chapter 3 §3.5.3 (jump principle); §3.5.4 (temporal-Gladue interaction); Chapter 3 §3.4.5 (cumulative inferential inertia, addressed via N7 reliability discount in concert).
+**Doctrinal source.** Chapter 3 §3.5.3 (jump principle); §3.5.4 (temporal-Gladue interaction); §3.4.5 (cumulative inferential inertia); Appendix RM §RM.5 (cascade-propagation operationalisation, including the nested treatment between N7 reliability grading and jump-principle weighting).
 
-**Scope of this implementation.** Forward contamination via numerical anchoring (the jump principle) is operationalised here. Inferential inertia (§3.4.5) is operationalised through the existing N7 reliability discount: convictions graded Heavily Discounted contribute proportionately less to N2's input, dampening cumulative reinforcement. Audit transparency — each step's contribution visible to the reviewing court — completes the architectural answer to §3.4.5.
+**Relation to N7 cascade propagation.** The jump principle and the §5.1.7 cascade are nested rather than parallel. Both describe forward effects of earlier convictions on the conditions under which subsequent convictions are processed; they differ in their object. Cascade propagation modifies the bail-denial probability for subsequent convictions; the jump principle modifies the sentence-inflation baseline against which subsequent severity is measured. The N7 weight factor above prevents double-counting of upstream taint by reducing the anchoring contribution of convictions whose severity has already been recognised by the architecture as cascade-contaminated.
+
+**Scope of this implementation.** Forward contamination via numerical anchoring (the jump principle), the N7 reliability discount, and the cascade propagation between them are all operationalised here. Audit transparency — each step's contribution visible to the reviewing court — completes the architectural answer to §3.4.5.
                     """)
 
         if esc_data.get("note"):
