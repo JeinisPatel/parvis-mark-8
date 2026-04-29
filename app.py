@@ -1167,10 +1167,22 @@ try:
         NODE_SEARCH_QUERIES,
     )
     CANLII_ON = True
-except ImportError:
+except Exception as _canlii_err:
+    # Catches ImportError plus any module-level failure (missing deps,
+    # secrets, runtime errors). Provide stub fallbacks so the rest of the
+    # app continues to render even if CanLII is unavailable.
     CANLII_ON = False
+    NODE_SEARCH_QUERIES = {}
+    ALL_TRACKED_CITATIONS = []
+    TETRAD_CITATIONS = []
+    PROPORTIONALITY_CITATIONS = []
     def canlii_ok(): return False
-    def validate_api_key(): return {"valid": False, "error": "canlii_client not importable"}
+    def validate_api_key(): return {"valid": False, "error": f"canlii_client unavailable: {type(_canlii_err).__name__}"}
+    def search_node_developments(*a, **kw): return {}
+    def get_tetrad_updates(*a, **kw): return {}
+    def search_with_filters(*a, **kw): return {}
+    def get_tracked_updates(*a, **kw): return {}
+    def flatten_search_results(*a, **kw): return []
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 TABS=st.tabs(["📋 Summary","🕸️ Architecture","📋 Profile","💬 Intake (Chat)",
@@ -1182,20 +1194,21 @@ TABS=st.tabs(["📋 Summary","🕸️ Architecture","📋 Profile","💬 Intake 
 with TABS[0]:
     _band_lbl, _band_fg, _band_bg = _summary_band(P[20])
     _drv_up_raw, _drv_dn_raw = _top_drivers(P, k=8)
-    # ── Doctrinal architecture: N1 (structural control), N17 (over-policing
-    # contamination), and N19 (collider bias) — three structural conditioning nodes ──
-    # Per Chapter 5: N1 encodes evidentiary admissibility burden; N17 encodes
-    # over-policing contamination of records; N19 encodes collider bias / 
-    # selection effects from system entry. These nodes condition the inference 
-    # rather than responding to case-specific evidence.
-    _struct_nodes = {1, 17, 19}  # node IDs treated as structural in the Summary panel
+    # ── Doctrinal architecture: N1 (burden of proof), N5 (risk-tool validity
+    # gate per Ewert), and N19 (collider bias) — three structural conditioning ──
+    # Per Chapter 5: N1 encodes evidentiary admissibility burden; N5 encodes
+    # the Ewert risk-tool validity gate that conditions how risk-tool outputs
+    # (N3, N4) carry weight; N19 encodes collider bias from system-entry
+    # variables. These three nodes condition the architecture's inferential
+    # structure rather than responding directly to case-specific evidence.
+    _struct_nodes = {1, 5, 19}  # node IDs treated as structural in the Summary panel
     _drv_up = [d for d in _drv_up_raw if d["nid"] not in _struct_nodes][:5]
     _drv_dn = [d for d in _drv_dn_raw if d["nid"] not in _struct_nodes][:5]
     _struct_drivers = []
     for d in _drv_up_raw + _drv_dn_raw:
         if d["nid"] in _struct_nodes and d not in _struct_drivers:
             _struct_drivers.append(d)
-    # Sort structural by node id for a stable display order (N1, N17, N19)
+    # Sort structural by node id for a stable display order (N1, N5, N19)
     _struct_drivers.sort(key=lambda d: d["nid"])
     _comp = _completeness_state()
     _doc = _doctrinal_frame()
@@ -1407,7 +1420,7 @@ with TABS[0]:
             unsafe_allow_html=True,
         )
 
-    # ── Zone 2a: Doctrinal architecture (N1, N17, N19 — structural constraints) ─
+    # ── Zone 2a: Doctrinal architecture (N1, N5, N19 — structural constraints) ──
     # Surfaced separately from the case-responsive drivers below per Chapter 5's
     # treatment of N1 as a structural control / shared parent node.
     st.markdown(
@@ -1434,7 +1447,7 @@ with TABS[0]:
                 # Stable accent palette per structural node identity
                 if _d["nid"] == 1:
                     _accent = "#BA7517"; _accent_bg = "#FAEEDA"; _accent_border = "#E5CC95"
-                elif _d["nid"] == 17:
+                elif _d["nid"] == 5:
                     _accent = "#185FA5"; _accent_bg = "#E8F0FA"; _accent_border = "#C7D3E5"
                 else:  # N19
                     _accent = "#5C4F8A"; _accent_bg = "#EFEBF5"; _accent_border = "#C8BFDA"
@@ -1465,30 +1478,34 @@ with TABS[0]:
                         "percentages; the values shown are best-available "
                         "industry estimates of these doctrinal thresholds."
                     )
-                elif _d["nid"] == 17:
+                elif _d["nid"] == 5:
                     _surface = (
-                        "Models contamination introduced when criminal records "
-                        "more plausibly reflect disproportionate policing "
-                        "intensity than proportionate harmful conduct. Treats "
-                        "record density as a hypothesis requiring justification "
-                        "rather than as neutral evidence."
+                        "Encodes the Ewert validity gate on risk-assessment "
+                        "tools — PCL-R, Static-99R, and similar instruments. "
+                        "Conditions how downstream risk-tool outputs carry "
+                        "weight when applied to populations on which the tools "
+                        "were not validated. Functions as a structural "
+                        "discount on tool-derived evidence, not as a posterior "
+                        "over case facts."
                     )
-                    _expand_label = "Doctrinal scope of N17 — Chapter 5 §5.1.17"
+                    _expand_label = "Doctrinal scope of N5 — Chapter 5 §5.1.5 / Ewert v Canada"
                     _formal = (
-                        "Per Chapter 5 §5.1.17, N17 captures contamination "
-                        "from over-policing and epistemic distortion of "
-                        "criminal records. The node operates upstream of "
-                        "Prior Record Reliability, Risk Assessment Calibration, "
-                        "and Dangerous Offender Designation. Where policing "
-                        "disparity is high, surveillance-triggered entries "
-                        "dominate the record, and identity-based exposure "
-                        "patterns align with known enforcement biases, the "
-                        "architecture downweights record-derived evidence to "
-                        "prevent feedback loops where over-policed communities "
-                        "are penalised for being visible. The node does not "
-                        "question conviction validity — it conditions "
-                        "inferential reliability when records are reused as "
-                        "inputs for risk assessment."
+                        "Per Chapter 5 §5.1.5 and Ewert v Canada [2018] 2 SCR "
+                        "165, N5 encodes the validity gate on risk-assessment "
+                        "tools used in DO proceedings. The Supreme Court held "
+                        "that CSC's continued reliance on actuarial tools "
+                        "without confirming their validity for Indigenous "
+                        "populations breached the statutory duty of "
+                        "accuracy. PARVIS operationalises this by computing "
+                        "a tool_validity multiplier from N5's posterior, "
+                        "which discounts the contribution of N3 (sexual "
+                        "offence risk profile) and N4 (dynamic risk) to "
+                        "Node 20. Where tools are unvalidated for the "
+                        "individual before the court, the architecture "
+                        "reduces tool-derived weight up to ~42%. This is "
+                        "the Ewert principle made operational at the level "
+                        "of inferential structure rather than rhetorical "
+                        "compliance."
                     )
                 else:  # N19
                     _surface = (
@@ -1554,7 +1571,7 @@ with TABS[0]:
     # ── Zone 2: Drivers ──────────────────────────────────────────────────────
     st.markdown("### Drivers of the posterior")
     st.caption("Top 5 nodes pushing DO risk up, top 5 pulling it down. "
-               "Case-responsive nodes only — structural constraints (N1, N17, N19) "
+               "Case-responsive nodes only — structural constraints (N1, N5, N19) "
                "shown separately above. Increasing-side: risk and constraint "
                "nodes ranked by posterior. Decreasing-side: mitigations, "
                "systemic distortion corrections, and causal detectors.")
@@ -4491,18 +4508,22 @@ details.parvis-doc > .parvis-doc-body em { font-style: italic; }
     with col_node:
         _node_options = [f"N{nid} — {NODE_META.get(nid, {}).get('short', f'Node {nid}')}"
                          for nid in sorted(NODE_SEARCH_QUERIES.keys()) if nid in NODE_META]
-        _node_choice = st.selectbox(
-            "Select node",
-            _node_options,
-            key="canlii_node_pick",
-        )
-    _selected_nid = int(_node_choice.split(" ")[0][1:])
+        if _node_options:
+            _node_choice = st.selectbox(
+                "Select node",
+                _node_options,
+                key="canlii_node_pick",
+            )
+        else:
+            _node_choice = None
+            st.caption("_Per-node search unavailable — CanLII module not loaded._")
+    _selected_nid = int(_node_choice.split(" ")[0][1:]) if _node_choice else None
     with col_pn_btn:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
         _run_node = st.button("🔍 Search recent cases for this node", key="node_search_btn", disabled=not _canlii_active)
         if not _canlii_active:
             st.caption("_Configure CanLII API access to enable._")
-    if _run_node:
+    if _run_node and _selected_nid is not None:
         with st.spinner(f"Searching CanLII for Node {_selected_nid}..."):
             _node_results = search_node_developments(
                 _selected_nid, max_results=6,
