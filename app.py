@@ -148,7 +148,7 @@ div[data-testid="stSlider"][aria-label="N2 — Violent history"] > div > div > d
 div[data-testid="stSlider"][aria-label="N3 — Psychopathy (PCL-R)"] > div > div > div > div { background:#A32D2D !important; }
 div[data-testid="stSlider"][aria-label="N4 — Sexual offence"] > div > div > div > div { background:#A32D2D !important; }
 div[data-testid="stSlider"][aria-label="N4 — Dynamic risk"] > div > div > div > div { background:#A32D2D !important; }
-div[data-testid="stSlider"][aria-label="N5 — Risk tools"] > div > div > div > div { background:#185FA5 !important; }
+div[data-testid="stSlider"][aria-label="N5 — Invalid risk tools"] > div > div > div > div { background:#185FA5 !important; }
 div[data-testid="stSlider"][aria-label="N6 — Ineffective counsel"] > div > div > div > div { background:#185FA5 !important; }
 div[data-testid="stSlider"][aria-label="N7 — Bail-denial cascade"] > div > div > div > div { background:#185FA5 !important; }
 div[data-testid="stSlider"][aria-label="N9 — FASD"] > div > div > div > div { background:#534AB7 !important; }
@@ -819,8 +819,6 @@ def _doctrinal_frame():
 # ── Session state ─────────────────────────────────────────────────────────────
 def _init():
     defs = {"model":None,"engine":None,"profile_ev":{},"gladue_checked":set(),"criminal_record":[],"cr_doc_adj":{},"saved_scenarios":{},
-            # §5.1.17 N17b counsel attestation — override path per JP M3 confirmation
-            "n17b_counsel_attestation":False,
             "sce_checked":set(),"sce_values":{},"manual_ev":{},"doc_adj":{},"posteriors":{},
             "qdiags":{},"conn":"moderate","enex":"relevant","scefw":"morris","doc_res":[],"qbism_plain":"","qbism_dm":{},
             "case_id":"","case_jur":""}
@@ -939,180 +937,6 @@ def _compute_sce_corrections_by_gate():
     return corrections_by_gate
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# §5.1.17 N17 sub-node signal computation
-#
-# Per JP confirmation (Apr 28-29, 2026):
-#   M1: N17a derived from jurisdiction with Moderate default
-#   M2: N17c/N17d pattern-matched from criminal record now; schema migration later
-#   M3: N17b OR-gate over Gladue tab evidence with counsel attestation override
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Strong-match Gladue/SCE factor IDs that engage §5.1.17 §2 enforcement-disparity
-# patterns. OR-gate: any one fires → N17b signal high.
-_N17B_TRIGGER_FACTORS = {
-    "g_op",   # Over-policed community of origin
-    "s_ra",   # Anti-Black / racialized racism documented
-    "s_rp",   # Documented racial profiling
-    "s_bi",   # Anti-Black systemic incarceration patterns
-    "s_bb",   # Anti-Black bail practices documented
-    "s_nb",   # Neighbourhood structural disadvantage
-}
-
-# §5.1.17 §2 surveillance-trigger keyword patterns. Lowercased substring match
-# on offence text. Conservative — false positives possible (e.g. "possession of
-# stolen property" is included; counsel can override at per-conviction level
-# via the existing adj_police slider).
-_N17D_SURVEILLANCE_PATTERNS = (
-    "breach",
-    "fail to comply",
-    "fail to appear",
-    "administration of justice",
-    "aoj",
-    "possession",
-)
-
-# Violence keywords — any match disqualifies an offence from being counted as
-# "non-violent" for N17c regardless of seriousness tier. Matches §5.1.17 §2's
-# distinction between "non-violent charges" (low-harm/compliance) and
-# violence-driven entries.
-_N17C_VIOLENCE_PATTERNS = (
-    "assault",
-    "robbery",
-    "manslaughter",
-    "murder",
-    "homicide",
-    "sexual",
-    "firearm",
-    "aggravated",
-    "weapon",
-)
-
-
-def _n17a_signal(case_jur: str) -> int:
-    """
-    N17a — Jurisdictional Policing Disparity Index.
-
-    Per JP M1 confirmation: Moderate default for every jurisdiction with override
-    available later. Currently returns binary state: 0 (Low/Moderate) for default,
-    1 (High) only if jurisdiction is known to have documented over-policing
-    patterns AND we have explicit override evidence.
-
-    Conservative architectural choice: do not embed contested empirical claims
-    about specific provinces in the constructive-proof CPT. The override path
-    (counsel-input slider) is reserved for Stage 3 if needed.
-
-    Returns: 0 (Low/Moderate disparity) or 1 (High disparity)
-    """
-    # M1 conservative default: every jurisdiction starts Low/Moderate (state 0).
-    # Override mechanism deferred to Stage 3.
-    return 0
-
-
-def _n17b_signal() -> int:
-    """
-    N17b — Enforcement-Disparity Engagement.
-
-    Per JP M3 confirmation: OR-gate over Gladue/SCE tab evidence with counsel
-    attestation override. If any §5.1.17 §2 trigger factor is checked, OR if
-    counsel has attested, return 1 (High).
-
-    Read from st.session_state.gladue_checked (Gladue tab) and
-    st.session_state.sce_checked (Morris/Ellis SCE tab) — both contribute since
-    §5.1.17 §2 cites both Indigenous and Black community over-policing patterns.
-
-    Returns: 0 (no engagement) or 1 (documented engagement)
-    """
-    gladue = st.session_state.get("gladue_checked", set()) or set()
-    sce = st.session_state.get("sce_checked", set()) or set()
-    attestation = st.session_state.get("n17b_counsel_attestation", False)
-
-    # OR-gate: any trigger factor present, or attestation
-    if attestation:
-        return 1
-    if any(fid in _N17B_TRIGGER_FACTORS for fid in gladue):
-        return 1
-    if any(fid in _N17B_TRIGGER_FACTORS for fid in sce):
-        return 1
-    return 0
-
-
-def _n17c_signal(criminal_record) -> int:
-    """
-    N17c — Non-Violent Charge Density.
-
-    Per JP M2 confirmation: pattern-match offence text now, schema migration
-    later. Computes proportion of non-violent charges in the record. Threshold
-    at 0.50 — if more than half the record is low-harm/non-violent, signal High.
-
-    A conviction is counted as non-violent when:
-      (a) seriousness tier is Minor or Moderate, AND
-      (b) offence text contains no violence keywords
-
-    Returns: 0 (low non-violent density) or 1 (high non-violent density)
-    """
-    if not criminal_record:
-        return 0
-    total = len(criminal_record)
-    if total == 0:
-        return 0
-    non_violent_count = 0
-    for entry in criminal_record:
-        offence = (entry.get("offence", "") or "").lower()
-        seriousness_label = (entry.get("seriousness_label", "") or "").lower()
-        # Check seriousness tier
-        is_low_tier = ("minor" in seriousness_label or "moderate" in seriousness_label)
-        # Check for violence keywords
-        has_violence = any(p in offence for p in _N17C_VIOLENCE_PATTERNS)
-        if is_low_tier and not has_violence:
-            non_violent_count += 1
-    density = non_violent_count / total
-    return 1 if density > 0.50 else 0
-
-
-def _n17d_signal(criminal_record) -> int:
-    """
-    N17d — Surveillance-Triggered Entries.
-
-    Per JP M2 confirmation: pattern-match offence text for surveillance signatures
-    per §5.1.17 §2: breaches, AOJ offences, simple possession. Threshold at 0.30
-    — even moderate density of surveillance-triggered entries is concerning per
-    §5.1.17 §5 ("when surveillance-triggered entries dominate").
-
-    Returns: 0 (few surveillance-triggered) or 1 (many surveillance-triggered)
-    """
-    if not criminal_record:
-        return 0
-    total = len(criminal_record)
-    if total == 0:
-        return 0
-    surveillance_count = 0
-    for entry in criminal_record:
-        offence = (entry.get("offence", "") or "").lower()
-        if any(p in offence for p in _N17D_SURVEILLANCE_PATTERNS):
-            surveillance_count += 1
-    density = surveillance_count / total
-    return 1 if density >= 0.30 else 0
-
-
-def _compute_n17_evidence() -> dict:
-    """
-    Compute the four §5.1.17 N17 sub-node evidence states for inference.
-
-    Returns dict mapping pgmpy node IDs ('17a', '17b', '17c', '17d') to
-    binary states (0 or 1). Suitable for passing as hard evidence to
-    query_do_risk.
-    """
-    case_jur = st.session_state.get("case_jur", "") or ""
-    record = st.session_state.get("criminal_record", []) or []
-    return {
-        "17a": _n17a_signal(case_jur),
-        "17b": _n17b_signal(),
-        "17c": _n17c_signal(record),
-        "17d": _n17d_signal(record),
-    }
-
-
 # ── Inference ─────────────────────────────────────────────────────────────────
 def run_inf():
     from model import compute_do_risk
@@ -1130,16 +954,6 @@ def run_inf():
         if prob>=0.85 or prob<=0.15:  # Only very certain manual overrides
             hard_ev[str(nid)]=1 if prob>=0.5 else 0
     hard_ev.pop("20",None)
-
-    # §5.1.17 N17 sub-node evidence — feed N17a/N17b/N17c/N17d states to VE
-    # so that N17's posterior is computed against §5.1.17 §7 illustrative CPT.
-    # Computed from session state via the four signal helpers above.
-    # Manual overrides (st.session_state.manual_ev) take precedence if present.
-    n17_ev = _compute_n17_evidence()
-    for sub_nid, state in n17_ev.items():
-        if sub_nid not in hard_ev:
-            hard_ev[sub_nid] = state
-
     post=query_do_risk(st.session_state.engine, hard_ev)
 
     # Step 2: Apply profile evidence as direct continuous posterior values
@@ -1307,12 +1121,7 @@ NP={1:(.50,.92),2:(.12,.73),3:(.50,.73),4:(.88,.73),
     5:(.07,.55),6:(.23,.55),9:(.40,.55),13:(.57,.55),15:(.73,.55),
     7:(.07,.38),10:(.23,.38),11:(.40,.38),14:(.57,.38),17:(.73,.38),
     8:(.07,.20),12:(.23,.20),16:(.40,.20),18:(.57,.20),19:(.73,.20),
-    20:(.50,.03),
-    # ── §5.1.17 sub-nodes (cluster around N17) ──
-    "17a":(.66,.46),  # between N13 and N17 — receives N13→17a edge
-    "17b":(.85,.50),  # above-right of N17
-    "17c":(.85,.42),  # right of N17
-    "17d":(.93,.42)}  # far-right of N17
+    20:(.50,.03)}
 
 def draw_dag(post,sel=None):
     fig,ax=plt.subplots(figsize=(13,9),facecolor='#fafafa')
@@ -1328,30 +1137,18 @@ def draw_dag(post,sel=None):
         ax.annotate("",xy=(x2,y2),xytext=(x1,y1),
             arrowprops=dict(arrowstyle="-|>",color='#888' if hi else '#ccc',lw=1.2 if hi else .6,
             connectionstyle="arc3,rad=0.05"))
-    NR={1:.055,20:.055,
-        # §5.1.17 sub-nodes — smaller radius for visual hierarchy
-        "17a":.025, "17b":.025, "17c":.025, "17d":.025}
+    NR={1:.055,20:.055}
     for nid,(x,y) in NP.items():
         m=NODE_META[nid];col=TC[m["type"]];p=post.get(nid,.5);iS=sel==nid
         r=NR.get(nid,.040)
         ax.add_patch(plt.Circle((x,y),r,color=col if iS else col+'28',ec=col,lw=2 if iS else 1,zorder=3))
         th=np.linspace(-np.pi/2,-np.pi/2+2*np.pi*p,60)
         ax.plot(x+(r+.010)*np.cos(th),y+(r+.010)*np.sin(th),color=col,lw=2.5,alpha=.85,zorder=4)
-        # Font size: 8 for single-digit ints, 7 for double-digit, 5.5 for sub-nodes
-        if isinstance(nid, str):
-            _fs = 5.5
-        else:
-            _fs = 8 if nid < 10 else 7
-        ax.text(x,y,str(nid),ha='center',va='center',fontsize=_fs,
+        ax.text(x,y,str(nid),ha='center',va='center',fontsize=8 if nid<10 else 7,
                 fontweight='bold',color='white' if iS else col,zorder=5)
         lbl=m["short"][:14]+("…" if len(m["short"])>14 else "")
-        # Sub-nodes use tighter label spacing and slightly smaller text
-        if isinstance(nid, str):
-            ax.text(x,y-r-.018,lbl,ha='center',va='top',fontsize=5.5,color='#555',zorder=5)
-            ax.text(x,y-r-.034,f'{p*100:.0f}%',ha='center',va='top',fontsize=5,color=col,fontweight='bold',zorder=5,alpha=.8)
-        else:
-            ax.text(x,y-r-.025,lbl,ha='center',va='top',fontsize=6.5,color='#555',zorder=5)
-            ax.text(x,y-r-.050,f'{p*100:.0f}%',ha='center',va='top',fontsize=6,color=col,fontweight='bold',zorder=5,alpha=.8)
+        ax.text(x,y-r-.025,lbl,ha='center',va='top',fontsize=6.5,color='#555',zorder=5)
+        ax.text(x,y-r-.050,f'{p*100:.0f}%',ha='center',va='top',fontsize=6,color=col,fontweight='bold',zorder=5,alpha=.8)
     handles=[plt.Line2D([0],[0],marker='o',color='w',markerfacecolor=c,markeredgecolor=c,
              markersize=8,label=TL[t]) for t,c in TC.items()]
     ax.legend(handles=handles,loc='upper right',fontsize=7.5,framealpha=.92,edgecolor='#ddd')
@@ -1407,22 +1204,12 @@ with TABS[0]:
     _struct_nodes = {1, 5, 19}  # node IDs treated as structural in the Summary panel
     _drv_up = [d for d in _drv_up_raw if d["nid"] not in _struct_nodes][:5]
     _drv_dn = [d for d in _drv_dn_raw if d["nid"] not in _struct_nodes][:5]
-    # Build _struct_drivers directly from _struct_nodes + P — these cards 
-    # render unconditionally because they represent structural conditioning
-    # of the inference, independent of whether the underlying node happens
-    # to surface in the top-k drivers ranking.
     _struct_drivers = []
-    for nid in sorted(_struct_nodes):
-        _meta = NODE_META.get(nid, {})
-        _t = _meta.get("type", "")
-        _struct_drivers.append({
-            "nid":        nid,
-            "short":      _meta.get("short", f"N{nid}"),
-            "type_":      _t,
-            "type_label": TL.get(_t, _t.title()),
-            "color":      TC.get(_t, "#888"),
-            "p":          float(P.get(nid, 0.0)),
-        })
+    for d in _drv_up_raw + _drv_dn_raw:
+        if d["nid"] in _struct_nodes and d not in _struct_drivers:
+            _struct_drivers.append(d)
+    # Sort structural by node id for a stable display order (N1, N5, N19)
+    _struct_drivers.sort(key=lambda d: d["nid"])
     _comp = _completeness_state()
     _doc = _doctrinal_frame()
     _case_id   = (st.session_state.get("case_id") or "").strip() or "Untitled case"
@@ -1830,93 +1617,6 @@ with TABS[0]:
         else:
             st.caption("No decreasing-side drivers above threshold.")
 
-    # ── Zone 2.5: §5.1.17 N17 audit signal breakdown (if active) ────────────
-    # Surfaces the four-parent contributions when N17 is materially active.
-    # N17 is "active" when its posterior is above its baseline default (~10%)
-    # OR when any of the four sub-nodes signals High. This panel renders only
-    # when there is something meaningful to display — for clean records with
-    # no §5.1.17 signals, the panel stays hidden to avoid clutter.
-    _n17_post = float(P.get(17, 0.10))
-    _n17a_post = float(P.get("17a", 0.0))
-    _n17b_post = float(P.get("17b", 0.0))
-    _n17c_post = float(P.get("17c", 0.0))
-    _n17d_post = float(P.get("17d", 0.0))
-    _n17_active = (_n17_post > 0.20) or any(
-        v >= 0.50 for v in (_n17a_post, _n17b_post, _n17c_post, _n17d_post)
-    )
-    if _n17_active and not _empty:
-        st.markdown(
-            "<div style='margin-top:24px;font-size:0.92rem;font-weight:500;"
-            "font-family:DM Sans, sans-serif;color:#1A1A1A;letter-spacing:-0.005em'>"
-            "§5.1.17 audit signal — four-parent breakdown</div>",
-            unsafe_allow_html=True,
-        )
-        st.caption(
-            "Per Chapter 5 §5.1.17 §4, N17 (over-policing & epistemic "
-            "contamination) has four parent inputs. This panel surfaces the "
-            "current state of each contribution. N17 high → record reliability "
-            "falls per §5.1.17 §6."
-        )
-
-        _n17_color = "#185FA5"  # distortion blue per TC palette
-        # Four sub-node tiles in a horizontal grid
-        _sub_nodes = [
-            ("17a", "Jurisdictional disparity", _n17a_post,
-             "Index per case jurisdiction · §5.1.17 §4 row 1"),
-            ("17b", "Enforcement-disparity engagement", _n17b_post,
-             "OR-gate over Gladue/SCE evidence · §5.1.17 §4 row 2"),
-            ("17c", "Non-violent charge density", _n17c_post,
-             "Pattern-matched from record · §5.1.17 §4 row 3"),
-            ("17d", "Surveillance-triggered entries", _n17d_post,
-             "Pattern-matched from record · §5.1.17 §4 row 4"),
-        ]
-        _tile_cols = st.columns(4)
-        for _col, (_sid, _name, _p, _desc) in zip(_tile_cols, _sub_nodes):
-            with _col:
-                _state_label = "High" if _p >= 0.50 else "Low"
-                _state_color = "#A32D2D" if _p >= 0.50 else "#9E9E9E"
-                _bg_color = "#FAEEDA" if _p >= 0.50 else "#FBFAF7"
-                _border_color = "#E5CC95" if _p >= 0.50 else "#E0DDD6"
-                st.markdown(
-                    f"<div style='background:{_bg_color};border:1px solid {_border_color};"
-                    f"border-radius:8px;padding:10px 12px;height:100%;min-height:120px'>"
-                    f"<div style='display:flex;align-items:baseline;justify-content:space-between;"
-                    f"margin-bottom:6px'>"
-                    f"<span style='font-family:JetBrains Mono,monospace;font-size:0.72rem;"
-                    f"font-weight:600;color:{_n17_color};background:{_n17_color}18;"
-                    f"padding:2px 6px;border-radius:4px'>N{_sid}</span>"
-                    f"<span style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
-                    f"font-weight:600;color:{_state_color}'>{_state_label}</span>"
-                    f"</div>"
-                    f"<div style='font-size:0.78rem;font-weight:500;color:#1A1A1A;"
-                    f"line-height:1.35;margin-bottom:6px'>{_name}</div>"
-                    f"<div style='font-family:JetBrains Mono,monospace;font-size:1rem;"
-                    f"font-weight:600;color:{_n17_color}'>{_p*100:.1f}%</div>"
-                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
-                    f"font-size:0.7rem;color:#888;margin-top:4px;line-height:1.4'>{_desc}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-        # Aggregate N17 row beneath the four tiles
-        _n17_color_top = "#A32D2D" if _n17_post >= 0.50 else "#185FA5"
-        st.markdown(
-            f"<div style='margin-top:10px;padding:10px 14px;background:#F6F4F0;"
-            f"border:1px solid #E5E0D8;border-radius:8px;"
-            f"display:flex;justify-content:space-between;align-items:center'>"
-            f"<div>"
-            f"<span style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
-            f"font-weight:600;color:{_n17_color};background:{_n17_color}18;"
-            f"padding:2px 6px;border-radius:4px;margin-right:8px'>N17</span>"
-            f"<span style='font-size:0.86rem;font-weight:500;color:#1A1A1A'>"
-            f"Over-policing & epistemic contamination</span>"
-            f"</div>"
-            f"<div style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
-            f"font-weight:600;color:{_n17_color_top}'>{_n17_post*100:.1f}%</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
     st.markdown("---")
 
     # ── Zone 3: Completeness + Doctrinal frame ───────────────────────────────
@@ -2037,11 +1737,7 @@ with TABS[0]:
 with TABS[1]:
     cl,cr=st.columns([3,1])
     with cl:
-        opts={None:"— none —"}
-        opts.update({n:f"N{n}: {NODE_META[n]['name']}" for n in range(1,21)})
-        # §5.1.17 sub-nodes — appended after main nodes
-        for sub_id in ("17a", "17b", "17c", "17d"):
-            opts[sub_id] = f"N{sub_id}: {NODE_META[sub_id]['name']}"
+        opts={None:"— none —"};opts.update({n:f"N{n}: {NODE_META[n]['name']}" for n in range(1,21)})
         sel=st.selectbox("Inspect node",list(opts.keys()),format_func=lambda x:opts[x])
         st.pyplot(draw_dag(P,sel),use_container_width=True)
     with cr:
@@ -2116,36 +1812,6 @@ with TABS[2]:
     with _ci_col2:
         st.text_input("Jurisdiction / location", key="case_jur",
                       placeholder="e.g. Calgary · Alberta")
-
-    # ── §5.1.17 N17b counsel attestation (override path) ──────────────────
-    # Per JP confirmation M3: primary signal is OR-gate over Gladue/SCE tab
-    # evidence; this checkbox is the override for cases where documentation
-    # exists but is not yet captured in the Gladue/SCE tab fields, or where
-    # counsel's professional judgment supports engagement that the structured
-    # fields don't fully accommodate.
-    st.markdown(
-        "<div style='margin:14px 0 4px 0; font-size:0.78rem; "
-        "font-family:DM Sans, sans-serif; color:#5A5A5A; "
-        "letter-spacing:0.04em; text-transform:uppercase;'>"
-        "§5.1.17 audit signal (N17b)"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.checkbox(
-        "Counsel attests this case engages documented enforcement-disparity "
-        "patterns per §5.1.17 §2",
-        key="n17b_counsel_attestation",
-        help=(
-            "§5.1.17 §2 references documented over-policing patterns affecting "
-            "Indigenous and Black communities (carding, proactive patrols, "
-            "compliance-focused enforcement). The primary signal for N17b is "
-            "automatically derived from Gladue/SCE tab fields you populate "
-            "(over-policed community of origin, racial profiling documentation, "
-            "anti-Black bail practices, etc.). Use this attestation only as an "
-            "override where evidence engages §5.1.17 §2 patterns but is not yet "
-            "captured in those structured fields."
-        ),
-    )
 
     # Visual separator below case-id
     st.markdown(
@@ -5138,7 +4804,7 @@ RISK FACTOR POSTERIORS:
 
 DISTORTION CORRECTIONS (reduce effective risk weight):
 - N1 Burden of proof: {Pa.get(1,0.83)*100:.1f}%
-- N5 Risk tools: {Pa.get(5,0.10)*100:.1f}%
+- N5 Invalid risk tools (Ewert): {Pa.get(5,0.10)*100:.1f}%
 - N6 Ineffective counsel: {Pa.get(6,0.15)*100:.1f}%
 - N7 Bail-denial cascade: {Pa.get(7,0.40)*100:.1f}%
 - N9 FASD: {Pa.get(9,0.15)*100:.1f}%
@@ -6824,103 +6490,6 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
                     f"font-size:0.82rem;color:#3A3A3A;margin-top:2px'>{cite}</div>"
                     f"</div>",
                     unsafe_allow_html=True)
-
-        # ── §5.1.17 audit-signal methodology (N17c / N17d auto-detection) ──
-        with st.expander("📚 §5.1.17 audit signal — how N17c and N17d are computed"):
-            # Compute live values for the current record
-            _record = st.session_state.get("criminal_record", []) or []
-            _n_total = len(_record)
-            # Recompute density values for display
-            _n17c_count = 0
-            _n17d_count = 0
-            for _e in _record:
-                _off = (_e.get("offence", "") or "").lower()
-                _ser = (_e.get("seriousness_label", "") or "").lower()
-                _is_low_tier = ("minor" in _ser or "moderate" in _ser)
-                _has_violence = any(p in _off for p in _N17C_VIOLENCE_PATTERNS)
-                if _is_low_tier and not _has_violence:
-                    _n17c_count += 1
-                if any(p in _off for p in _N17D_SURVEILLANCE_PATTERNS):
-                    _n17d_count += 1
-            _n17c_density = (_n17c_count / _n_total) if _n_total else 0.0
-            _n17d_density = (_n17d_count / _n_total) if _n_total else 0.0
-            _n17c_state = "High" if _n17c_density > 0.50 else "Low"
-            _n17d_state = "High" if _n17d_density >= 0.30 else "Low"
-
-            st.markdown(
-                "<div style='font-family:Fraunces,serif;font-style:italic;"
-                "font-size:0.88rem;color:#3A3A3A;line-height:1.55;margin-bottom:14px'>"
-                "Per Chapter 5 §5.1.17 §2, criminal records are institutionally-"
-                "produced artifacts. Where exposure to policing is uneven, record "
-                "density is unreliable as a proxy for criminality. Two of N17's "
-                "four parents (N17c, N17d) are auto-computed from the offence "
-                "text of each conviction below:"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-            # N17c live status card
-            _n17c_color = "#A32D2D" if _n17c_state == "High" else "#3B6D11"
-            st.markdown(
-                f"<div style='border-left:3px solid {_n17c_color};padding:.6rem .9rem;"
-                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
-                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
-                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
-                f"color:#1A1A1A;font-size:0.94rem'>N17c — Non-violent charge density</div>"
-                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
-                f"color:{_n17c_color};font-weight:600'>{_n17c_count}/{_n_total} = "
-                f"{_n17c_density*100:.0f}% · {_n17c_state}</div>"
-                f"</div>"
-                f"<div style='font-family:Fraunces,serif;font-style:italic;"
-                f"font-size:0.78rem;color:#5A5A5A;margin-top:4px'>"
-                f"Counts entries where seriousness tier is Minor/Moderate AND "
-                f"offence text contains no violence keywords "
-                f"(<code style='font-family:JetBrains Mono,monospace;font-size:0.74rem;color:#888'>"
-                f"assault, robbery, manslaughter, murder, sexual, firearm, aggravated, weapon</code>). "
-                f"State is High when density &gt; 50%."
-                f"</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-            # N17d live status card
-            _n17d_color = "#A32D2D" if _n17d_state == "High" else "#3B6D11"
-            st.markdown(
-                f"<div style='border-left:3px solid {_n17d_color};padding:.6rem .9rem;"
-                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
-                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
-                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
-                f"color:#1A1A1A;font-size:0.94rem'>N17d — Surveillance-triggered entries</div>"
-                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
-                f"color:{_n17d_color};font-weight:600'>{_n17d_count}/{_n_total} = "
-                f"{_n17d_density*100:.0f}% · {_n17d_state}</div>"
-                f"</div>"
-                f"<div style='font-family:Fraunces,serif;font-style:italic;"
-                f"font-size:0.78rem;color:#5A5A5A;margin-top:4px'>"
-                f"Pattern-matches §5.1.17 §2 surveillance signatures in offence text "
-                f"(<code style='font-family:JetBrains Mono,monospace;font-size:0.74rem;color:#888'>"
-                f"breach, fail to comply, fail to appear, administration of justice, possession</code>). "
-                f"State is High when density ≥ 30%."
-                f"</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                "<div style='font-family:Fraunces,serif;font-style:italic;"
-                "font-size:0.80rem;color:#707070;margin-top:14px;line-height:1.55'>"
-                "<strong style='font-weight:500;color:#3A3A3A;font-style:normal'>Override path.</strong> "
-                "Pattern-matching against offence text is conservative — false positives "
-                "(e.g. \"possession of stolen property\" matching \"possession\") are possible. "
-                "Counsel can override at the per-conviction level via the "
-                "<strong style='font-weight:500'>Over-policing slider</strong> in the conviction "
-                "form above, which feeds the existing N17 over-policing pathway independently "
-                "of N17c/N17d. The two pathways are doctrinally complementary: the slider "
-                "captures per-conviction nuance; the audit signal captures aggregate "
-                "composition of the record per §5.1.17 §5."
-                "</div>",
-                unsafe_allow_html=True,
-            )
 
         if st.button("Clear entire record", key="cr_clear"):
             st.session_state.criminal_record = []

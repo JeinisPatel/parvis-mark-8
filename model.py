@@ -67,9 +67,7 @@ import numpy as np
 #   N7 → N2 cascade preserved (bail-WCGP affects record reliability)
 #   N20 (DO designation) is downstream of all distortion + risk nodes
 #       but computed POST-VE (not in pgmpy network)
-# Edges with int IDs and string IDs both supported. String IDs are used for
-# the four §5.1.17 sub-nodes (17a/17b/17c/17d) per C1 confirmed by JP.
-EDGES_VE = [(str(f), str(t)) for f, t in [
+EDGES_VE = [(f, t) for f, t in [
     # Layer I — Substantive Risk
     (1, 2), (1, 3), (1, 4),
     # Layer II — Distortion conditioning
@@ -86,18 +84,13 @@ EDGES_VE = [(str(f), str(t)) for f, t in [
     (10, 18),                       # judicial misapplication → SCE Profile audit
     (9, 18),                        # IGT → SCE Profile audit
     (3, 11),                        # sexual offence risk profile → gaming detector
-    # ── §5.1.17 N17 four-parent topology (C3: TraceRoute routes through N17a) ──
-    (13, '17a'),                    # TraceRoute → Jurisdictional Policing Disparity
-    ('17a', 17), ('17b', 17), ('17c', 17), ('17d', 17),  # 4 parents → N17
+    (13, 17),                       # TraceRoute → over-policing
     (17, 19),                       # over-policing → collider bias
     (14, 19),                       # temporal distortion → collider bias  
     (10, 16),                       # judicial misapplication → doctrinal tension
     (10, 15),                       # SCE misapp → tariff distortion
     (14, 18),                       # temporal distortion → SCE Profile audit
     (12, 18),                       # judging-the-judge → SCE Profile audit
-] + [
-    # Manually convert the 4 string-ID edges to ('17a', '17') format
-    # (already strings — the str() cast above handles int → str)
 ]]
 
 
@@ -126,13 +119,6 @@ NODE_META = {
     17: {"name": "Over-policing & epistemic contamination",       "short": "Over-policing",         "type": "distortion", "ev": True},
     18: {"name": "Gladue / Ewert / Morris / Ellis profile",       "short": "SCE profile audit",     "type": "distortion", "ev": False},
     19: {"name": "Collider bias",                                 "short": "Collider bias",         "type": "distortion", "ev": False},
-    # ── §5.1.17 sub-nodes — four parents of N17 (added per JP confirmation C1) ──
-    # These are sub-nodes of N17 (similar to N10a-N10d for Gladue misapplication factors).
-    # IDs stored as strings to disambiguate from int node IDs.
-    "17a": {"name": "Jurisdictional policing disparity",          "short": "Disparity",       "type": "distortion", "ev": True},
-    "17b": {"name": "Enforcement-disparity engagement",           "short": "Engagement",  "type": "distortion", "ev": True},
-    "17c": {"name": "Non-violent charge density",                 "short": "Non-violent",   "type": "distortion", "ev": True},
-    "17d": {"name": "Surveillance-triggered entries",             "short": "Surveillance",  "type": "distortion", "ev": True},
     # ── Structural Output (CH5 iii) ──────────────────────────────────────────
     20: {"name": "Dangerous offender designation",                "short": "DO designation",        "type": "output",     "ev": False},
 }
@@ -321,57 +307,14 @@ def build_model():
         [0.25, 0.50],     # P(High tension) — unresolved conflict where SCE misapplied
     ])
 
-    # ── N17a: Jurisdictional policing disparity (parent: N13 TraceRoute) ─────
-    # Per CH5 §5.1.17 §4 + JP routing decision C3:
-    # TraceRoute (structural systemic bias) conditions the disparity index.
-    # When N13 (TraceRoute) is High, baseline disparity expectation rises.
-    # Conservative defaults per JP M1 confirmation: Moderate when no structural
-    # bias signal, elevated when N13 indicates systemic bias.
-    cpd17a = _cpt('17a', ['13'], [
-        [0.65, 0.40],     # P(disparity Low) — neutral when N13 Low; corrected when High
-        [0.35, 0.60],     # P(disparity High) — rises with structural bias signal
-    ])
-
-    # ── N17b: Enforcement-disparity engagement (no parents — evidence) ───────
-    # Per JP M3: derived from Gladue tab evidence (OR-gate) with counsel
-    # attestation override. The Bayesian network treats this as a root evidence
-    # node; the actual signal is computed app-side and fed at inference time.
-    # Default prior: Low when no Gladue evidence engages §5.1.17 §2 categories.
-    cpd17b = TabularCPD(variable='17b', variable_card=2, values=[[0.65], [0.35]])
-
-    # ── N17c: Non-violent charge density (no parents — auto-computed) ────────
-    # Per JP M2: pattern-matched from criminal record (breaches, AOJ offences,
-    # possession). Default prior reflects baseline expectation across cases.
-    cpd17c = TabularCPD(variable='17c', variable_card=2, values=[[0.65], [0.35]])
-
-    # ── N17d: Surveillance-triggered entries (no parents — auto-computed) ────
-    # Per JP M2: pattern-matched from criminal record (proactive enforcement
-    # offence patterns). Default prior reflects baseline expectation.
-    cpd17d = TabularCPD(variable='17d', variable_card=2, values=[[0.70], [0.30]])
-
-    # ── N17: Over-policing & epistemic contamination (4 parents) ─────────────
-    # Per CH5 §5.1.17 §7 illustrative CPT (anchors match exactly):
-    #   (0,0,0,0) all Low                  → P(contamination) = 0.10
-    #   (1,1,1,1) all High                 → P(contamination) = 0.85  [§7 row 1]
-    #   (0,1,1,1) no disparity, race-eng+  → P(contamination) = 0.70  [§7 row 2]
-    #   (1,0,1,1) high disp, no race-eng   → P(contamination) = 0.55  [§7 row 3]
-    #
-    # 16 parent combinations indexed in pgmpy column order:
-    #   col_idx = state(17a) + state(17b)*2 + state(17c)*4 + state(17d)*8
-    #
-    # Structural weighting per §5.1.17 §5: disparity + race-engagement carry
-    # more weight than record-derived signals alone (charge density, surveillance
-    # entries). Single-parent contributions: N17a/N17b each ~0.30; N17c/N17d
-    # each ~0.20. Pair contributions amplify (interaction effects). Anchor
-    # points hit §5.1.17 §7 exactly; intermediate combinations interpolated
-    # to maintain monotonicity in parent count.
-    cpd17 = _cpt('17', ['17a', '17b', '17c', '17d'], [
-        # P(N17 = Low contamination): 1 - P(High)
-        [0.90, 0.80, 0.80, 0.70, 0.70, 0.45, 0.50, 0.30,
-         0.70, 0.60, 0.60, 0.45, 0.50, 0.25, 0.30, 0.15],
-        # P(N17 = High contamination) — anchored to §5.1.17 §7
-        [0.10, 0.20, 0.20, 0.30, 0.30, 0.55, 0.50, 0.70,
-         0.30, 0.40, 0.40, 0.55, 0.50, 0.75, 0.70, 0.85],
+    # ── N17: Over-Policing & Epistemic Contamination (parent: N13) ───────────
+    # Maps from current N14 (Over-policing), CPT structure preserved
+    # Per CH5 §5.1.17: structural systemic bias (N13/TraceRoute) → over-policing
+    # The current N14 had parents (N7, N8) — restructured to single parent N13
+    # since over-policing in CH5 is conceptually downstream of structural bias.
+    cpd17 = _cpt('17', ['13'], [
+        [0.45, 0.25],     # marginalised from prior (7,8)→(N13) since structural
+        [0.55, 0.75],     # bias drives over-policing in CH5 §5.1.17
     ])
 
     # ── N18: Gladue/Ewert/Morris/Ellis Profile (parents: N9, N10, N12, N14) ──
@@ -395,11 +338,10 @@ def build_model():
     ])
 
     # Add all CPDs (Node 20 excluded — computed post-VE)
-    # §5.1.17 sub-nodes (17a/17b/17c/17d) added for four-parent N17 topology.
     model.add_cpds(
         cpd1, cpd2, cpd3, cpd4, cpd5, cpd6, cpd7, cpd8,
         cpd9, cpd10, cpd11, cpd12, cpd13, cpd14, cpd15,
-        cpd16, cpd17a, cpd17b, cpd17c, cpd17d, cpd17, cpd18, cpd19
+        cpd16, cpd17, cpd18, cpd19
     )
 
     assert model.check_model(), "Model CPDs are inconsistent — check tables."
@@ -429,14 +371,10 @@ def compute_do_risk(posteriors: dict) -> float:
     """
     p = posteriors
 
-    # Record reliability: bail-WCGP cascade + IAC + N17 over-policing reduce
-    # violent history weight. N17 contribution per JP Q2 confirmation:
-    #   weight = 0.30; floor drops from 0.40 to 0.30 to allow N17 to contribute
-    # substantially when over-policing is high (max contamination ~0.85 → 
-    # record_reliability can fall to ~0.30 in extreme cases per §5.1.17 §7).
+    # Record reliability: bail-WCGP cascade + IAC reduce violent history weight
     record_reliability = float(np.clip(
-        1.0 - 0.35 * p.get(7, 0.5) - 0.15 * p.get(6, 0.5) - 0.30 * p.get(17, 0.5),
-        0.30, 1.0
+        1.0 - 0.35 * p.get(7, 0.5) - 0.15 * p.get(6, 0.5),
+        0.40, 1.0
     ))
 
     # Tool validity: N5 (invalid risk tools) discounts N3 (sexual offence profile)
@@ -454,26 +392,19 @@ def compute_do_risk(posteriors: dict) -> float:
     )
 
     # Distortion: systemic-distortion-layer nodes downweight effective risk
-    # Updated per CH5 canonical taxonomy + §5.1.17 N17 operationalisation.
-    # NOTE: N17 (over-policing) DROPPED from dst because it now contributes 
-    # via record_reliability above. Including it in both would double-count 
-    # the contamination signal. The 0.10 weight previously assigned to N17
-    # has been redistributed: 0.05 to N13 (TraceRoute, now 0.15), 0.05 to
-    # N10 (SCE misapp, now 0.23). This preserves total distortion-side weight
-    # at ~1.0 while routing N17's effect through record_reliability where
-    # §5.1.17 doctrinally locates it ("Criminal Record Reliability Modifier").
+    # Updated per CH5 canonical taxonomy
     dst = (
         0.18 * posteriors.get(5, 0.5) +    # N5  invalid risk tools
         0.12 * posteriors.get(6, 0.5) +    # N6  IAC
         0.08 * posteriors.get(7, 0.5) +    # N7  bail-WCGP cascade
         0.05 * posteriors.get(9, 0.5) +    # N9  IGT/treatment (mitigation)
-        0.23 * posteriors.get(10, 0.5) +   # N10 SCE misapplication (was 0.18)
+        0.18 * posteriors.get(10, 0.5) +   # N10 SCE misapplication
         0.05 * posteriors.get(12, 0.5) +   # N12 judging-the-judge
-        0.15 * posteriors.get(13, 0.5) +   # N13 TraceRoute (was 0.10)
+        0.10 * posteriors.get(13, 0.5) +   # N13 TraceRoute
         0.06 * posteriors.get(14, 0.5) +   # N14 temporal distortion (linear part)
         0.04 * posteriors.get(15, 0.5) +   # N15 tariff distortion
-        0.04 * posteriors.get(16, 0.5)     # N16 doctrinal tension
-        # N17 EXCLUDED — contributes via record_reliability per §5.1.17 §6
+        0.04 * posteriors.get(16, 0.5) +   # N16 doctrinal tension
+        0.10 * posteriors.get(17, 0.5)     # N17 over-policing
         # N19 (collider bias) intentionally excluded — its effect is on
         # the inference structure itself, not directly on the DO posterior
     )
@@ -502,20 +433,17 @@ def query_do_risk(engine, evidence: dict) -> dict:
     Returns dict of {node_id: P(High)} for all 20 nodes.
     """
     results = {}
-    # Standard nodes 1-19 plus §5.1.17 sub-nodes 17a/17b/17c/17d
-    ve_nodes = [str(i) for i in range(1, 20)] + ['17a', '17b', '17c', '17d']
+    ve_nodes = [str(i) for i in range(1, 20)]
 
     for node in ve_nodes:
-        # Sub-nodes (17a/17b/17c/17d) keyed by string; main nodes by int
-        node_key = node if not node.isdigit() else int(node)
         if node in evidence:
-            results[node_key] = float(evidence[node])
+            results[int(node)] = float(evidence[node])
             continue
         try:
             q = engine.query(variables=[node], evidence=evidence, show_progress=False)
-            results[node_key] = float(q.values[1])
+            results[int(node)] = float(q.values[1])
         except Exception:
-            results[node_key] = 0.5
+            results[int(node)] = 0.5
 
     results[20] = compute_do_risk(results)
     return results
@@ -548,9 +476,4 @@ def get_default_priors() -> dict:
         18: 0.40,   # SCE Profile audit
         19: 0.55,   # Collider bias
         20: 0.50,   # DO designation risk
-        # §5.1.17 sub-nodes — defaults reflect conservative starting points
-        "17a": 0.35,  # Jurisdictional policing disparity (M1: Moderate default)
-        "17b": 0.35,  # Enforcement-disparity engagement (low until Gladue evidence)
-        "17c": 0.35,  # Non-violent charge density (auto-computed from record)
-        "17d": 0.30,  # Surveillance-triggered entries (auto-computed from record)
     }
