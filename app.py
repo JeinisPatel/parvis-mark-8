@@ -971,7 +971,7 @@ def run_inf():
 
     # Step 4: Compute Node 20 using full model formula
     # Includes: record reliability (N7/N6), Ewert tool validity (N5→N3/N4),
-    # and age burnout multiplier (N15). All from model.compute_do_risk.
+    # and age burnout multiplier (N14 — Temporal Distortion per CH5 §5.1.14). All from model.compute_do_risk.
     post[20]=compute_do_risk(post)
     st.session_state.posteriors=post
     # Pass engine + per-gate SCE corrections so the new Appendix Q
@@ -5255,7 +5255,7 @@ with TABS[4]:
             pat = "desistance"
             signal = -0.12
             note = (f"Last two convictions separated by {year_gap} years — extended gap suggests desistance. "
-                    f"Temporal attenuation applicable per age burnout (N15).")
+                    f"Temporal attenuation applicable per age burnout (N14).")
         else:
             pat = "stable"
             signal = 0.0
