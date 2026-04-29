@@ -831,6 +831,12 @@ def _init():
             "n15a_counsel_attestation":False,  # high-tariff jurisdiction
             "n15b_counsel_attestation":False,  # tariff-sensitive offence type
             "n15c_counsel_attestation":False,  # tariff-sensitive sentence length
+            # §5.1.18 N18 counsel attestations — override paths per Q1=β + Q7=α
+            # N18d (Doctrinal Tagging compliance) is BN-derived from N10 — no
+            # separate attestation needed.
+            "n18a_counsel_attestation":False,  # no Morris/Ellis SCE precedent
+            "n18b_counsel_attestation":False,  # SCE absent in reasons aggregate
+            "n18c_counsel_attestation":False,  # SCE substance nominal-or-absent
             "sce_checked":set(),"sce_values":{},"manual_ev":{},"doc_adj":{},"posteriors":{},
             "qdiags":{},"conn":"moderate","enex":"relevant","scefw":"morris","doc_res":[],"qbism_plain":"","qbism_dm":{},
             "case_id":"","case_jur":""}
@@ -1440,6 +1446,140 @@ def _compute_n15_evidence() -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.1.18 N18 sub-node signal computation
+#
+# Per JP confirmations Q1=β + Q7=α: per-conviction SCE-integration tags
+# (Full / Partial / Nominal / Absent) drive aggregate sub-node signals;
+# counsel attestations override pattern-matched defaults.
+#
+# Per-conviction tag semantics (Morris Heuristic Audit-aligned):
+#   Full     — SCE substantively integrated into reasons for sentence
+#   Partial  — SCE referenced and partially integrated
+#   Nominal  — SCE mentioned but not substantively engaged
+#   Absent   — SCE not mentioned (default — most conservative)
+#
+# Sub-node binary mapping:
+#   N18b (SCE Presence): "Full"/"Partial"/"Nominal" → 0; "Absent" → 1
+#   N18c (SCE Substance): "Full"/"Partial" → 0; "Nominal"/"Absent" → 1
+#   The N18b/N18c split preserves the Morris insight that nominal-only
+#   mention without substantive integration is a distinct failure mode
+#   from outright absence.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Per-conviction SCE-integration tag values (Q1=β)
+_N18_TAG_VALUES = ("Full", "Partial", "Nominal", "Absent")
+_N18_TAG_DEFAULT = "Absent"  # most conservative default
+
+# Tags that count as "SCE substantively present" for N18b
+_N18_PRESENT_TAGS = ("Full", "Partial", "Nominal")
+# Tags that count as "SCE substantively integrated" for N18c
+_N18_SUBSTANTIVE_TAGS = ("Full", "Partial")
+
+# Jurisdictions with strong provincial appellate SCE-integration scrutiny.
+# ON post-Morris (2021 ONCA 680), BC post-Ellis (2022 BCCA 278), and SCC
+# nationwide cases. All others default to inflation risk (state 1).
+_N18_SCE_INTEGRATED_JURISDICTIONS = (
+    "ontario", "on ", " on,", "(on)",  # Morris ONCA
+    "british columbia", "bc ", " bc,", "(bc)",  # Ellis BCCA
+    "supreme court of canada", "scc ", " scc,", "(scc)",  # SCC
+)
+
+
+def _n18a_signal(case_jur: str) -> int:
+    """
+    N18a — Jurisdiction SCE-integration sensitivity.
+
+    Per Q7 (α): tier-classify case_jur against jurisdictions with strong
+    provincial appellate SCE-integration scrutiny.
+    State 1 (inflation risk — no Morris/Ellis precedent) when:
+      - Counsel attestation present, OR
+      - case_jur does NOT contain any SCE-integrated jurisdiction marker
+
+    Returns: 0 (Morris/Ellis/SCC jurisdiction) or 1 (no strong precedent)
+    """
+    if st.session_state.get("n18a_counsel_attestation", False):
+        return 1
+    if not case_jur:
+        return 1  # no jurisdiction info → conservative inflation risk
+    case_lower = case_jur.lower()
+    sce_integrated = any(j in case_lower for j in _N18_SCE_INTEGRATED_JURISDICTIONS)
+    return 0 if sce_integrated else 1
+
+
+def _n18b_signal(criminal_record) -> int:
+    """
+    N18b — SCE Presence in Reasons (aggregate).
+
+    Per Q1 (β) + Q7 (α): aggregate over per-conviction sce_integration_tag.
+    State 1 (SCE absent in at least one conviction) when:
+      - Counsel attestation present, OR
+      - Any conviction has tag "Absent" (no SCE reference in reasons)
+
+    Returns: 0 (all convictions have at least nominal SCE presence)
+             1 (at least one conviction has SCE absent)
+    """
+    if st.session_state.get("n18b_counsel_attestation", False):
+        return 1
+    if not criminal_record:
+        return 0  # empty record → no inflation signal
+    for entry in criminal_record:
+        tag = entry.get("sce_integration_tag", _N18_TAG_DEFAULT)
+        if tag not in _N18_PRESENT_TAGS:
+            return 1
+    return 0
+
+
+def _n18c_signal(criminal_record) -> int:
+    """
+    N18c — SCE Substance.
+
+    Per Q1 (β) + Q7 (α) + Morris Heuristic Audit: aggregate over
+    per-conviction sce_integration_tag. State 1 (substance absent) when:
+      - Counsel attestation present, OR
+      - Any conviction has tag "Nominal" or "Absent" (no substantive
+        integration even if mentioned)
+
+    This captures the Morris Audit insight that nominal Gladue mention
+    without substantive integration is the most common failure mode.
+
+    Returns: 0 (all convictions Full/Partial — substantive integration)
+             1 (at least one conviction Nominal or Absent)
+    """
+    if st.session_state.get("n18c_counsel_attestation", False):
+        return 1
+    if not criminal_record:
+        return 0
+    for entry in criminal_record:
+        tag = entry.get("sce_integration_tag", _N18_TAG_DEFAULT)
+        if tag not in _N18_SUBSTANTIVE_TAGS:
+            return 1
+    return 0
+
+
+def _compute_n18_evidence() -> dict:
+    """
+    Compute the §5.1.18 N18 sub-node evidence states for inference.
+
+    Returns dict mapping pgmpy node IDs ('18a', '18b', '18c') to binary
+    states. Suitable for passing as hard evidence to query_do_risk.
+
+    Note: N18d (Doctrinal Tagging compliance) is NOT computed app-side —
+    it is a BN node with parent N10 (Misapplication). Its posterior is
+    computed by Variable Elimination from N10's evidence per Q5 (α).
+    N18 itself is also NOT fed evidence — its posterior comes from VE
+    over the six parents (N12, N14, 18a, 18b, 18c, 18d).
+    """
+    case_jur = st.session_state.get("case_jur", "") or ""
+    record = st.session_state.get("criminal_record", []) or []
+    return {
+        "18a": _n18a_signal(case_jur),
+        "18b": _n18b_signal(record),
+        "18c": _n18c_signal(record),
+        # 18d intentionally omitted — derived from N10 via BN inference
+    }
+
+
 # ── Inference ─────────────────────────────────────────────────────────────────
 def run_inf():
     from model import compute_do_risk
@@ -1481,6 +1621,16 @@ def run_inf():
     # via the 5-parent structural edge per Q4 (α).
     n15_ev = _compute_n15_evidence()
     for sub_nid, state in n15_ev.items():
+        if sub_nid not in hard_ev:
+            hard_ev[sub_nid] = state
+
+    # §5.1.18 N18 sub-node evidence — feed N18a/b/c states to VE so that
+    # N18's posterior is computed against §5.1.18 §7 illustrative CPT.
+    # N18d is NOT fed (BN-derived from N10 per Q5 (α)); N18 itself is NOT
+    # fed — its posterior comes from VE over the 6-parent structure
+    # (N12 + N14 + 18a/b/c/d).
+    n18_ev = _compute_n18_evidence()
+    for sub_nid, state in n18_ev.items():
         if sub_nid not in hard_ev:
             hard_ev[sub_nid] = state
 
@@ -1666,7 +1816,12 @@ NP={1:(.50,.92),2:(.12,.73),3:(.50,.73),4:(.88,.73),
     "15a":(.66,.62),  # above-left of N15 — receives N13→15a edge
     "15b":(.78,.65),  # above-right of N15 (root evidence)
     "15c":(.85,.60),  # right of N15 (root evidence)
-    "15d":(.85,.52)}  # below-right of N15 (shared n14c attestation)
+    "15d":(.85,.52),  # below-right of N15 (shared n14c attestation)
+    # ── §5.1.18 sub-nodes (cluster around N18 at (.57,.20)) ──
+    "18a":(.50,.26),  # above-left of N18 — receives N13→18a edge (long)
+    "18b":(.50,.14),  # below-left of N18 (root evidence — driven by per-conv tags)
+    "18c":(.58,.12),  # below N18 (root evidence — driven by per-conv tags)
+    "18d":(.66,.26)}  # above-right of N18 — receives N10→18d edge
 
 def draw_dag(post,sel=None):
     fig,ax=plt.subplots(figsize=(13,9),facecolor='#fafafa')
@@ -1688,7 +1843,9 @@ def draw_dag(post,sel=None):
         # §5.1.14 sub-nodes — same smaller radius
         "14a":.025, "14b":.025, "14c":.025, "14d":.025,
         # §5.1.15 sub-nodes — same smaller radius
-        "15a":.025, "15b":.025, "15c":.025, "15d":.025}
+        "15a":.025, "15b":.025, "15c":.025, "15d":.025,
+        # §5.1.18 sub-nodes — same smaller radius
+        "18a":.025, "18b":.025, "18c":.025, "18d":.025}
     for nid,(x,y) in NP.items():
         m=NODE_META[nid];col=TC[m["type"]];p=post.get(nid,.5);iS=sel==nid
         r=NR.get(nid,.040)
@@ -2447,6 +2604,94 @@ with TABS[0]:
             unsafe_allow_html=True,
         )
 
+    # ── Zone 2.8: §5.1.18 N18 audit signal breakdown (if active) ─────────
+    # Conditional render: appears when N18 is materially active (posterior >
+    # 25% or any sub-node ≥ 50%). N18 baseline default ~30-40% so threshold
+    # at 25% catches meaningful elevations.
+    _n18_post = float(P.get(18, 0.30))
+    _n18a_post = float(P.get("18a", 0.0))
+    _n18b_post = float(P.get("18b", 0.0))
+    _n18c_post = float(P.get("18c", 0.0))
+    _n18d_post = float(P.get("18d", 0.0))
+    _n18_active = (_n18_post > 0.25) or any(
+        v >= 0.50 for v in (_n18a_post, _n18b_post, _n18c_post, _n18d_post)
+    )
+    if _n18_active and not _empty:
+        st.markdown(
+            "<div style='margin-top:24px;font-size:0.92rem;font-weight:500;"
+            "font-family:DM Sans, sans-serif;color:#1A1A1A;letter-spacing:-0.005em'>"
+            "§5.1.18 audit signal — four-sub-node breakdown</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Per Chapter 5 §5.1.18 §1, N18 audits whether prior convictions "
+            "substantively integrated SCE / Tetrad jurisprudence. Framed as a "
+            "metadata tagging layer evaluating how a record should be "
+            "interpreted today, not whether it was properly decided then. "
+            "Per Q6=A, N18 routes through record_reliability — high N18 "
+            "(Inflated) discounts the evidentiary weight of N2 (validated risk "
+            "elevators) consistent with §5.1.18 §6 (\"Criminal Record "
+            "Reliability Modifier\")."
+        )
+
+        _n18_color = "#185FA5"  # distortion blue per TC palette
+        _sub_nodes = [
+            ("18a", "Jurisdiction sensitivity", _n18a_post,
+             "case_jur tier-classified · §5.1.18 §5 row 2"),
+            ("18b", "SCE Presence in reasons", _n18b_post,
+             "Per-conviction tag aggregate · §5.1.18 §5 row 3"),
+            ("18c", "SCE Substance (Morris Audit)", _n18c_post,
+             "Per-conviction tag aggregate · Morris Heuristic Audit"),
+            ("18d", "Doctrinal tagging compliance", _n18d_post,
+             "BN-derived from N10 · §5.1.18 §5 row 4"),
+        ]
+        _tile_cols = st.columns(4)
+        for _col, (_sid, _name, _p, _desc) in zip(_tile_cols, _sub_nodes):
+            with _col:
+                _state_label = "High" if _p >= 0.50 else "Low"
+                _state_color = "#A32D2D" if _p >= 0.50 else "#9E9E9E"
+                _bg_color = "#FAEEDA" if _p >= 0.50 else "#FBFAF7"
+                _border_color = "#E5CC95" if _p >= 0.50 else "#E0DDD6"
+                st.markdown(
+                    f"<div style='background:{_bg_color};border:1px solid {_border_color};"
+                    f"border-radius:8px;padding:10px 12px;height:100%;min-height:120px'>"
+                    f"<div style='display:flex;align-items:baseline;justify-content:space-between;"
+                    f"margin-bottom:6px'>"
+                    f"<span style='font-family:JetBrains Mono,monospace;font-size:0.72rem;"
+                    f"font-weight:600;color:{_n18_color};background:{_n18_color}18;"
+                    f"padding:2px 6px;border-radius:4px'>N{_sid}</span>"
+                    f"<span style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                    f"font-weight:600;color:{_state_color}'>{_state_label}</span>"
+                    f"</div>"
+                    f"<div style='font-size:0.78rem;font-weight:500;color:#1A1A1A;"
+                    f"line-height:1.35;margin-bottom:6px'>{_name}</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:1rem;"
+                    f"font-weight:600;color:{_n18_color}'>{_p*100:.1f}%</div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:0.7rem;color:#888;margin-top:4px;line-height:1.4'>{_desc}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Aggregate N18 row beneath the four tiles
+        _n18_color_top = "#A32D2D" if _n18_post >= 0.50 else "#185FA5"
+        st.markdown(
+            f"<div style='margin-top:10px;padding:10px 14px;background:#F6F4F0;"
+            f"border:1px solid #E5E0D8;border-radius:8px;"
+            f"display:flex;justify-content:space-between;align-items:center'>"
+            f"<div>"
+            f"<span style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+            f"font-weight:600;color:{_n18_color};background:{_n18_color}18;"
+            f"padding:2px 6px;border-radius:4px;margin-right:8px'>N18</span>"
+            f"<span style='font-size:0.86rem;font-weight:500;color:#1A1A1A'>"
+            f"SCE Profile audit (Gladue / Ewert / Morris / Ellis)</span>"
+            f"</div>"
+            f"<div style='font-family:JetBrains Mono,monospace;font-size:1.05rem;"
+            f"font-weight:600;color:{_n18_color_top}'>{_n18_post*100:.1f}%</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
     st.markdown("---")
 
     # ── Zone 3: Completeness + Doctrinal frame ───────────────────────────────
@@ -2577,6 +2822,9 @@ with TABS[1]:
             opts[sub_id] = f"N{sub_id}: {NODE_META[sub_id]['name']}"
         # §5.1.15 sub-nodes — appended after §5.1.14 sub-nodes
         for sub_id in ("15a", "15b", "15c", "15d"):
+            opts[sub_id] = f"N{sub_id}: {NODE_META[sub_id]['name']}"
+        # §5.1.18 sub-nodes — appended after §5.1.15 sub-nodes
+        for sub_id in ("18a", "18b", "18c", "18d"):
             opts[sub_id] = f"N{sub_id}: {NODE_META[sub_id]['name']}"
         sel=st.selectbox("Inspect node",list(opts.keys()),format_func=lambda x:opts[x])
         st.pyplot(draw_dag(P,sel),use_container_width=True)
@@ -2800,6 +3048,68 @@ with TABS[2]:
         "Note: N15d (jurisprudential compliance) shares the §5.1.14 SCE-applied "
         "attestation above — single doctrinal-application question covers both "
         "temporal and tariff dimensions."
+    )
+
+    # ── §5.1.18 N18 attestations (SCE Profile audit overrides) ──────────────
+    # Per Q1=β + Q7=α: primary signals are derived from per-conviction
+    # sce_integration_tag (set on Criminal Record tab) and case_jur (N18a).
+    # Counsel attestations override when professional judgment supports
+    # different reading or context isn't captured in the record. N18d is
+    # BN-derived from N10 — no separate attestation needed.
+    st.markdown(
+        "<div style='margin:14px 0 4px 0; font-size:0.78rem; "
+        "font-family:DM Sans, sans-serif; color:#5A5A5A; "
+        "letter-spacing:0.04em; text-transform:uppercase;'>"
+        "§5.1.18 audit signal (N18)"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.checkbox(
+        "Counsel attests sentencing jurisdiction lacks strong provincial "
+        "SCE-integration precedent (no Morris/Ellis-equivalent)",
+        key="n18a_counsel_attestation",
+        help=(
+            "§5.1.18 §1 frames N18 as profiling whether prior convictions "
+            "substantively integrated SCE/Tetrad. Provincial appellate-level "
+            "SCE-integration scrutiny is strongest in Ontario post-Morris "
+            "(2021 ONCA 680) and BC post-Ellis (2022 BCCA 278); SCC cases bind "
+            "nationwide. The primary heuristic auto-detects ON/BC/SCC. Use "
+            "this override where case-specific context indicates weaker "
+            "SCE-integration scrutiny than the jurisdictional default suggests."
+        ),
+    )
+    st.checkbox(
+        "Counsel attests SCE absent from reasons in at least one prior "
+        "conviction (aggregate override)",
+        key="n18b_counsel_attestation",
+        help=(
+            "§5.1.18 §5 row 3: SCE Presence in Reasons. The primary heuristic "
+            "aggregates over per-conviction SCE-integration tags set on the "
+            "Criminal Record tab. Use this override where counsel's review "
+            "indicates SCE absent in reasons even where the per-conviction "
+            "tag has not been updated, or where the doctrinal absence is "
+            "case-specifically established."
+        ),
+    )
+    st.checkbox(
+        "Counsel attests SCE substance nominal-only or absent in at least "
+        "one prior conviction (Morris Heuristic Audit)",
+        key="n18c_counsel_attestation",
+        help=(
+            "§5.1.18 doctrinal foundation cites the Morris Heuristic Audit "
+            "demonstrating that even when Gladue is cited, substantive "
+            "sentencing impact is often absent or minimal. The primary "
+            "heuristic aggregates over per-conviction tags (state 1 when any "
+            "conviction tagged Nominal or Absent). Use this override where "
+            "counsel's substantive review indicates merely nominal "
+            "engagement even where per-conviction tags have not been updated."
+        ),
+    )
+    st.caption(
+        "Note: N18d (Doctrinal Tagging compliance) is BN-derived from N10 "
+        "(Misapplication) per Q5 (α) — no separate attestation. Per-conviction "
+        "SCE-integration tags (Full / Partial / Nominal / Absent) are set on "
+        "the Criminal Record tab and drive N18b and N18c aggregate signals."
     )
 
     # Visual separator below case-id
@@ -6426,6 +6736,39 @@ with TABS[4]:
             ["ON","BC","AB","QC","SK","MB","NS","NB","NL","PE","YT","NT","NU","Federal"],
             key="cr_jur")
 
+        # ─── Subsection: §5.1.18 SCE-integration tagging (per-conviction) ───
+        # Per JP confirmation Q1=β: per-conviction tags exposed in UI;
+        # tags drive N18b (SCE Presence) and N18c (SCE Substance) sub-node
+        # aggregate signals. Default "Absent" (most conservative — defers to
+        # Morris Heuristic Audit empirical finding that nominal-or-absent is
+        # the modal failure mode).
+        st.markdown(
+            "<div style='font-size:0.66rem;text-transform:uppercase;"
+            "letter-spacing:0.14em;color:#707070;font-weight:600;"
+            "margin:18px 0 12px 0;padding-top:14px;"
+            "border-top:1px solid #EFEDE7'>§5.1.18 SCE integration tag</div>",
+            unsafe_allow_html=True,
+        )
+        cr_sce_tag = st.selectbox(
+            "Tetrad / SCE integration in reasons for sentence",
+            options=["Absent", "Nominal", "Partial", "Full"],
+            index=0,  # default "Absent"
+            key="cr_sce_tag",
+            help=(
+                "Per §5.1.18 §1, this profiles whether the original conviction "
+                "substantively integrated SCE / Tetrad jurisprudence — not "
+                "whether the sentence was correct. Tag values:\n\n"
+                "• **Full** — SCE substantively integrated into reasons\n"
+                "• **Partial** — SCE referenced and partially integrated\n"
+                "• **Nominal** — SCE mentioned but not substantively engaged "
+                "(Morris Heuristic Audit modal failure mode)\n"
+                "• **Absent** — SCE not mentioned in reasons (default)\n\n"
+                "Aggregates over per-conviction tags drive N18b (Presence) "
+                "and N18c (Substance). Counsel attestations on the Profile "
+                "tab can override the per-conviction tag aggregates."
+            ),
+        )
+
         # ─── Subsection: Sentence outcome ─────────────────────────────────
         st.markdown(
             "<div style='font-size:0.66rem;text-transform:uppercase;"
@@ -6653,6 +6996,8 @@ with TABS[4]:
                     "sentence_detail":   cr_sentence_detail.strip(),
                     "sent_modifier":     sent_mod,
                     "jurisdiction":      cr_jurisdiction,
+                    # §5.1.18 per-conviction SCE-integration tag (Q1=β)
+                    "sce_integration_tag": cr_sce_tag,
                     "seriousness":       _ser_map.get(cr_seriousness, 0.65),
                     "seriousness_label": cr_seriousness,
                     "agg_boost":         agg_boost,
@@ -7845,6 +8190,146 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
                 f"(persuasive) both map to state 0 — any jurisprudence applied means "
                 f"doctrine present. Current state: <strong style='color:{("#3B6D11" if _n15d_attest else "#A32D2D")}'>"
                 f"{_n15d_state}</strong>."
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+        # ── §5.1.18 audit-signal methodology (N18a/b/c — N18d BN-derived) ──
+        with st.expander("📚 §5.1.18 audit signal — how N18a, N18b, N18c are computed"):
+            _record = st.session_state.get("criminal_record", []) or []
+            _case_jur = st.session_state.get("case_jur", "") or ""
+
+            # Replicate _n18a logic for display
+            _case_lower = _case_jur.lower()
+            _n18a_match = any(j in _case_lower for j in _N18_SCE_INTEGRATED_JURISDICTIONS)
+            _n18a_attest = st.session_state.get("n18a_counsel_attestation", False)
+            _n18a_state = "No Morris/Ellis" if (not _n18a_match or _n18a_attest) else "Morris/Ellis/SCC"
+
+            # Replicate _n18b/c logic — count tag distribution
+            _n18b_attest = st.session_state.get("n18b_counsel_attestation", False)
+            _n18c_attest = st.session_state.get("n18c_counsel_attestation", False)
+            _tag_counts = {"Full":0, "Partial":0, "Nominal":0, "Absent":0}
+            for _e in _record:
+                _t = _e.get("sce_integration_tag", _N18_TAG_DEFAULT)
+                if _t in _tag_counts:
+                    _tag_counts[_t] += 1
+            _n18b_state = "Absent" if (_tag_counts["Absent"] > 0 or _n18b_attest) else "Present"
+            _n18c_state = ("Nominal/Absent" if (_tag_counts["Nominal"] + _tag_counts["Absent"] > 0
+                                                  or _n18c_attest)
+                           else "Substantive")
+
+            st.markdown(
+                "<div style='font-family:Fraunces,serif;font-style:italic;"
+                "font-size:0.88rem;color:#3A3A3A;line-height:1.55;margin-bottom:14px'>"
+                "Per Chapter 5 §5.1.18 §1, N18 audits whether prior convictions "
+                "substantively integrated SCE / Tetrad jurisprudence — "
+                "<em>not</em> whether the original sentence was correct. It is "
+                "framed as a metadata tagging layer, evaluating how a record "
+                "should be interpreted today rather than whether it was properly "
+                "decided then. Three of N18's six parents (N18a/b/c) are auto-"
+                "derived from case_jur and per-conviction SCE-integration tags. "
+                "N18d (Doctrinal Tagging compliance) is BN-derived from N10 "
+                "(Misapplication). N18 itself is computed by the Bayesian network "
+                "from these four sub-nodes plus N12 and N14 as structural "
+                "amplifiers per §5.1.18 §Position."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            # N18a status card
+            _n18a_color = "#A32D2D" if _n18a_state == "No Morris/Ellis" else "#3B6D11"
+            st.markdown(
+                f"<div style='border-left:3px solid {_n18a_color};padding:.6rem .9rem;"
+                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                f"color:#1A1A1A;font-size:0.94rem'>N18a — Jurisdiction SCE-integration sensitivity</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
+                f"color:{_n18a_color};font-weight:600'>"
+                f"{_case_jur if _case_jur else '(no jurisdiction set)'}"
+                f"{' · attested' if _n18a_attest else ''} · {_n18a_state}</div>"
+                f"</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#5A5A5A;margin-top:4px'>"
+                f"Tier-classifies <code style='font-family:JetBrains Mono,monospace;"
+                f"font-size:0.74rem;color:#888'>case_jur</code> against jurisdictions "
+                f"with strong provincial appellate SCE-integration scrutiny: ON post-"
+                f"Morris (2021 ONCA 680), BC post-Ellis (2022 BCCA 278), and SCC. "
+                f"All other jurisdictions default to inflation risk."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # N18b status card with tag distribution
+            _n18b_color = "#A32D2D" if _n18b_state == "Absent" else "#3B6D11"
+            _tag_dist_str = (
+                f"Full: {_tag_counts['Full']} · Partial: {_tag_counts['Partial']} · "
+                f"Nominal: {_tag_counts['Nominal']} · Absent: {_tag_counts['Absent']}"
+            )
+            st.markdown(
+                f"<div style='border-left:3px solid {_n18b_color};padding:.6rem .9rem;"
+                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                f"color:#1A1A1A;font-size:0.94rem'>N18b — SCE Presence in reasons</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
+                f"color:{_n18b_color};font-weight:600'>"
+                f"{_tag_dist_str}{' · attested' if _n18b_attest else ''} · {_n18b_state}</div>"
+                f"</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#5A5A5A;margin-top:4px'>"
+                f"Aggregates over per-conviction SCE-integration tags. State 1 "
+                f"(SCE absent) when at least one conviction tagged "
+                f"<code style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"color:#888'>Absent</code>. Tags Full/Partial/Nominal all count "
+                f"as SCE present in reasons."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # N18c status card — emphasises Morris Heuristic Audit
+            _n18c_color = "#A32D2D" if _n18c_state == "Nominal/Absent" else "#3B6D11"
+            _morris_count = _tag_counts["Nominal"] + _tag_counts["Absent"]
+            st.markdown(
+                f"<div style='border-left:3px solid {_n18c_color};padding:.6rem .9rem;"
+                f"margin-bottom:.7rem;background:#FBFAF7;border-radius:0 6px 6px 0'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:baseline'>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-weight:500;"
+                f"color:#1A1A1A;font-size:0.94rem'>N18c — SCE Substance (Morris Heuristic Audit)</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.80rem;"
+                f"color:{_n18c_color};font-weight:600'>"
+                f"{_morris_count} non-substantive conviction(s)"
+                f"{' · attested' if _n18c_attest else ''} · {_n18c_state}</div>"
+                f"</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#5A5A5A;margin-top:4px'>"
+                f"State 1 when any conviction tagged "
+                f"<code style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"color:#888'>Nominal</code> or "
+                f"<code style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"color:#888'>Absent</code>. Captures the Morris Heuristic Audit "
+                f"finding that nominal Gladue mention without substantive "
+                f"integration is a distinct failure mode from outright absence."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.80rem;color:#707070;margin-top:14px;line-height:1.55'>"
+                f"<strong style='font-weight:500;color:#3A3A3A;font-style:normal'>"
+                f"Note on N18d.</strong> "
+                f"N18d (Doctrinal Tagging compliance) has no app-derived signal. "
+                f"Per §5.1.18 §5 + Q5 (α), N18d is a Bayesian network node "
+                f"downstream of N10 (Judicial Misapplication of SCE). Its "
+                f"posterior is computed by Variable Elimination from N10's "
+                f"evidence — when N10 indicates misapplication, N18d rises "
+                f"proportionally, reflecting the increased likelihood of "
+                f"incomplete or error-flagged doctrinal tagging at original "
+                f"sentencing."
                 f"</div>",
                 unsafe_allow_html=True,
             )

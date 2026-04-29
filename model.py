@@ -84,8 +84,10 @@ EDGES_VE = [(str(f), str(t)) for f, t in [
     (9, 10),                        # IGT → judicial misapplication
     (5, 10),                        # invalid risk tools → judicial misapplication
     (10, 12),                       # judicial misapplication → judging the judge
-    (10, 18),                       # judicial misapplication → SCE Profile audit
-    (9, 18),                        # IGT → SCE Profile audit
+    # NOTE: (10, 18) and (9, 18) DROPPED per N18 Q5 (α) — neither is a §5.1.18
+    # §5 parent at the node level. N10 routes into N18 via N18d kinship edge
+    # (added below); N9 (IGT) is not a §5.1.18 §5 parent at all and was a
+    # holdover from the earlier Noisy-OR cpd18 specification.
     (3, 11),                        # sexual offence risk profile → gaming detector
     # ── §5.1.17 N17 four-parent topology (C3: TraceRoute routes through N17a) ──
     (13, '17a'),                    # TraceRoute → Jurisdictional Policing Disparity
@@ -99,6 +101,16 @@ EDGES_VE = [(str(f), str(t)) for f, t in [
     # appear among them. Old edge was holdover from earlier taxonomy.
     (14, 18),                       # temporal distortion → SCE Profile audit
     (12, 18),                       # judging-the-judge → SCE Profile audit
+    # ── §5.1.18 N18 four-sub-node + N12/N14 topology (Q5 (α)) ──
+    # N13 → N18a routes structural-bias signal through jurisdiction sensitivity
+    # sub-node (mirrors N13→N14a, N13→N15a, N13→N17a). N10 → N18d carries
+    # judicial-misapplication signal into Doctrinal Tagging compliance
+    # (mirrors N10→N14d kinship). Existing (14,18) and (12,18) edges retained
+    # at node level — N14 (temporal) and N12 (judging-the-judge) are §5.1.18
+    # §5 parents 5 and 4 respectively, treated as structural amplifiers.
+    (13, '18a'),                    # TraceRoute → Jurisdiction sensitivity (structural prior)
+    (10, '18d'),                    # Misapplication → Doctrinal Tagging compliance (kinship)
+    ('18a', 18), ('18b', 18), ('18c', 18), ('18d', 18),  # 4 sub-nodes → N18
     # ── §5.1.14 N14 four-parent topology (Q3: N13→14a, N10→14d) ──
     (13, '14a'),                    # TraceRoute → Era Severity (structural prior)
     (10, '14d'),                    # Misapplication → Judicial Competence Absent (kinship)
@@ -163,6 +175,15 @@ NODE_META = {
     "15b": {"name": "Tariff-sensitive offence type",              "short": "Tariff offence",        "type": "distortion", "ev": True},
     "15c": {"name": "Tariff-sensitive sentence length",           "short": "Tariff length",         "type": "distortion", "ev": True},
     "15d": {"name": "Jurisprudential compliance absent",          "short": "Doctrine absent",       "type": "distortion", "ev": True},
+    # ── §5.1.18 sub-nodes — four parents of N18 (Q2 (α): mirror N14/N15/N17) ──
+    # N18a: Jurisdiction sensitivity (state 1 = no Morris/Ellis precedent)
+    # N18b: SCE Presence in Reasons (state 1 = absent in reasons aggregate)
+    # N18c: SCE Substance (state 1 = nominal-only or absent — Morris Audit)
+    # N18d: Doctrinal Tagging compliance (state 1 = incomplete or error)
+    "18a": {"name": "Jurisdiction SCE-integration sensitivity",   "short": "Jurisdiction sensitivity", "type": "distortion", "ev": True},
+    "18b": {"name": "SCE presence in reasons",                    "short": "SCE presence",          "type": "distortion", "ev": True},
+    "18c": {"name": "SCE substance",                              "short": "SCE substance",         "type": "distortion", "ev": True},
+    "18d": {"name": "Doctrinal tagging compliance",               "short": "Doctrinal tagging",     "type": "distortion", "ev": True},
     # ── Structural Output (CH5 iii) ──────────────────────────────────────────
     20: {"name": "Dangerous offender designation",                "short": "DO designation",        "type": "output",     "ev": False},
 }
@@ -512,18 +533,90 @@ def build_model():
          0.30, 0.40, 0.40, 0.55, 0.50, 0.75, 0.70, 0.85],
     ])
 
-    # ── N18: Gladue/Ewert/Morris/Ellis Profile (parents: N9, N10, N12, N14) ──
-    # NEW node per CH5 §5.1.18 — SCE integration audit
-    # Audit-style node: surfaces whether prior convictions substantively 
-    # integrated SCE. Conservative default keyed to whether the conditioning
-    # nodes (IGT, misapplication, judicial reasoning, temporal context) 
-    # signal integration vs. omission.
-    # 16 combinations: (9, 10, 12, 14) — too complex for explicit table
-    # Use Noisy-OR with the four parents acting as inhibitors
-    cpd18 = _noisy_or('18', ['9', '10', '12', '14'],
-                       leak=0.85,           # base P(SCE-integration concern Low) when no parents High
-                       inhibitors=[0.85, 0.70, 0.80, 0.85])
-    # Above produces P(High) ranging from 0.15 (no concerns) to ~0.60 (all concerns)
+    # ── N18a: Jurisdiction SCE-integration sensitivity (parent: N13) ────────
+    # Per Q2 (α) + Q5 (α): TraceRoute structural-bias signal conditions
+    # whether the sentencing jurisdiction has strong provincial appellate
+    # SCE-integration scrutiny (Morris ONCA 2021, Ellis BCCA 2022) versus
+    # weaker provincial precedent. When N13 (TraceRoute) is High, structural-
+    # bias patterns correlate with jurisdictions where SCE integration is
+    # less likely to be substantively scrutinised.
+    cpd18a = _cpt('18a', ['13'], [
+        [0.62, 0.40],     # P(18a Low / Morris-Ellis jurisdiction) when N13 Low / High
+        [0.38, 0.60],     # P(18a High / no strong provincial precedent)
+    ])
+
+    # ── N18b: SCE Presence in Reasons (no parents — evidence) ───────────────
+    # Per Q1 (β) + Q7 (α): aggregate signal driven by per-conviction
+    # SCE-integration tags (Full / Partial / Nominal / Absent) exposed in UI.
+    # State 1 (SCE absent in reasons) when at least one conviction tagged
+    # "Absent". Default prior reflects baseline incidence of records lacking
+    # SCE reference in reasons (DOJ reports / Morris Audit empirical findings).
+    cpd18b = TabularCPD(variable='18b', variable_card=2, values=[[0.45], [0.55]])
+
+    # ── N18c: SCE Substance (no parents — evidence) ─────────────────────────
+    # Per Q4 (α) + Morris Heuristic Audit: state 1 (nominal-only or absent)
+    # when at least one conviction tagged "Nominal" or "Absent". Default
+    # prior reflects Morris Audit finding that even where SCE is mentioned,
+    # substantive integration is often absent or minimal.
+    cpd18c = TabularCPD(variable='18c', variable_card=2, values=[[0.40], [0.60]])
+
+    # ── N18d: Doctrinal Tagging compliance (parent: N10) ────────────────────
+    # Per Q5 (α): kinship edge from N10 (Misapplication). When N10 indicates
+    # judicial misapplication of SCE, doctrinal tagging is more likely
+    # incomplete or error-flagged (state 1). Mirrors N14d and N17d patterns
+    # where N10 → sub-node carries the misapplication signal into the relevant
+    # sub-node compliance check.
+    cpd18d = _cpt('18d', ['10'], [
+        [0.60, 0.30],     # P(18d Low / Tagging accurate) when N10 Low / High
+        [0.40, 0.70],     # P(18d High / Tagging incomplete or error)
+    ])
+
+    # ── N18: Gladue/Ewert/Morris/Ellis Profile (6 parents) ──────────────────
+    # Per CH5 §5.1.18 §7 illustrative CPT (binary collapse, 3 anchors hit):
+    #
+    #   Parent state (N12, N14, 18a, 18b, 18c, 18d) → P(N18=Inflated)
+    #   col 48 (1,1,0,0,0,0) → 0.10   §7 Row 1: Full Application + Accurate
+    #   col 51 (1,1,0,0,1,1) → 0.60   §7 Row 2: Nominal Reference + Incomplete
+    #   col 55 (1,1,0,1,1,1) → 0.90   §7 Row 3+4 collapsed: No Reference +
+    #                                  Incomplete/Error (binary collapse uses
+    #                                  Row 4 = 0.90, conservative — same
+    #                                  convention as N15 G+E/M+E collapse)
+    #
+    # Big-endian column ordering per pgmpy:
+    #   col_idx = state(N12)*32 + state(N14)*16 + state(18a)*8
+    #             + state(18b)*4 + state(18c)*2 + state(18d)*1
+    #
+    # Anchors hit at N12=1, N14=1 (peak amplification) with 18a=0
+    # (Morris/Ellis jurisdiction). N12=0 / N14=0 columns are reduced versions
+    # modeling the absence of judicial-reasoning / temporal amplification.
+    #
+    # Binary collapse on §7 multivalent state space:
+    #   18b (Presence): "Full" or "Nominal" → 0; "No Reference" → 1
+    #   18c (Substance): "Full" → 0; "Nominal" or "No Reference" → 1
+    #   18d (Tagging): "Accurate" → 0; "Incomplete" or "Error" → 1
+    # The N18b/N18c split preserves the Morris Heuristic Audit insight that
+    # nominal-only mention without substantive integration is a distinct
+    # failure mode from outright absence.
+    cpd18 = _cpt('18', ['12', '14', '18a', '18b', '18c', '18d'], [
+        # P(N18 = Reliable) = 1 - P(Inflated)
+        [0.95, 0.85, 0.80, 0.68, 0.85, 0.78, 0.65, 0.45,
+         0.90, 0.80, 0.75, 0.60, 0.80, 0.68, 0.55, 0.35,
+         0.93, 0.80, 0.75, 0.60, 0.80, 0.70, 0.55, 0.35,
+         0.87, 0.73, 0.67, 0.50, 0.73, 0.62, 0.45, 0.25,
+         0.92, 0.78, 0.72, 0.58, 0.78, 0.68, 0.52, 0.32,
+         0.85, 0.70, 0.64, 0.48, 0.70, 0.58, 0.42, 0.22,
+         0.90, 0.70, 0.60, 0.40, 0.70, 0.55, 0.35, 0.10,
+         0.80, 0.60, 0.50, 0.30, 0.60, 0.45, 0.25, 0.05],
+        # P(N18 = Inflated) — anchored to §5.1.18 §7
+        [0.05, 0.15, 0.20, 0.32, 0.15, 0.22, 0.35, 0.55,
+         0.10, 0.20, 0.25, 0.40, 0.20, 0.32, 0.45, 0.65,
+         0.07, 0.20, 0.25, 0.40, 0.20, 0.30, 0.45, 0.65,
+         0.13, 0.27, 0.33, 0.50, 0.27, 0.38, 0.55, 0.75,
+         0.08, 0.22, 0.28, 0.42, 0.22, 0.32, 0.48, 0.68,
+         0.15, 0.30, 0.36, 0.52, 0.30, 0.42, 0.58, 0.78,
+         0.10, 0.30, 0.40, 0.60, 0.30, 0.45, 0.65, 0.90,
+         0.20, 0.40, 0.50, 0.70, 0.40, 0.55, 0.75, 0.95],
+    ])
 
     # ── N19: Collider Bias (parents: N14, N17) ───────────────────────────────
     # Maps from current N17 (Collider bias), CPT structure preserved
@@ -539,7 +632,9 @@ def build_model():
         cpd9, cpd10, cpd11, cpd12, cpd13,
         cpd14a, cpd14b, cpd14c, cpd14d, cpd14,
         cpd15a, cpd15b, cpd15c, cpd15d, cpd15,
-        cpd16, cpd17a, cpd17b, cpd17c, cpd17d, cpd17, cpd18, cpd19
+        cpd16, cpd17a, cpd17b, cpd17c, cpd17d, cpd17,
+        cpd18a, cpd18b, cpd18c, cpd18d, cpd18,
+        cpd19
     )
 
     assert model.check_model(), "Model CPDs are inconsistent — check tables."
@@ -588,7 +683,8 @@ def compute_do_risk(posteriors: dict) -> float:
         - 0.35 * p.get(7, 0.5)    # N7  bail-WCGP cascade
         - 0.15 * p.get(6, 0.5)    # N6  IAC
         - 0.30 * p.get(17, 0.5)   # N17 over-policing
-        - 0.20 * p.get(14, 0.5),  # N14 temporal distortion
+        - 0.20 * p.get(14, 0.5)   # N14 temporal distortion
+        - 0.15 * p.get(18, 0.5),  # N18 SCE Profile audit (per §5.1.18 §6 + Q6=A)
         0.30, 1.0
     ))
 
@@ -598,19 +694,25 @@ def compute_do_risk(posteriors: dict) -> float:
         0.30, 1.0
     ))
 
-    # Raw risk: substantive risk nodes (N2, N3, N4) with appropriate discounts
+    # Raw risk: substantive risk nodes (N2, N3, N4) with appropriate discounts.
+    # Per §5.1.18 §6 + Q6=A: N18 (SCE Profile audit) routes through
+    # record_reliability (above) — old direct contribution at 0.25 weight in
+    # raw was both magnitude-wrong (over-large) and direction-wrong (added to
+    # raw instead of discounting). Now N18 properly discounts N2 through the
+    # record_reliability multiplier, mirroring N14 and N17.
     raw = (
         0.30 * p.get(2, 0.5) * record_reliability +    # N2: discounted by record reliability
         0.25 * p.get(3, 0.5) * tool_validity +         # N3: discounted by Ewert (N5)
-        0.20 * p.get(4, 0.5) +                         # N4 dynamic risk
-        0.25 * p.get(18, 0.5)                          # N18 SCE Profile audit (now distortion-side)
+        0.20 * p.get(4, 0.5)                           # N4 dynamic risk
+        # N18 EXCLUDED from raw — contributes via record_reliability per §5.1.18 §6
     )
 
     # Distortion: systemic-distortion-layer nodes downweight effective risk.
     # Updated per CH5 canonical taxonomy + §5.1.17 N17 + §5.1.14 N14 ops.
     # 
-    # NOTE: N17 (over-policing) and N14 (temporal distortion) BOTH excluded
-    # from dst because they now contribute via record_reliability above.
+    # NOTE: N17 (over-policing), N14 (temporal distortion), and N18 (SCE
+    # Profile audit) are all EXCLUDED from dst — they contribute via
+    # record_reliability per §5.1.17 §6, §5.1.14 §6, and §5.1.18 §6 respectively.
     # Including them in both would double-count the production-condition
     # distortion signal. Weights previously assigned have been redistributed:
     #   N17 0.10 → +0.05 to N13, +0.05 to N10 (Stage 1 of N17 build)
@@ -660,11 +762,12 @@ def query_do_risk(engine, evidence: dict) -> dict:
     """
     results = {}
     # Standard nodes 1-19 plus §5.1.17 (17a/b/c/d), §5.1.14 (14a/b/c/d),
-    # and §5.1.15 (15a/b/c/d) sub-nodes
+    # §5.1.15 (15a/b/c/d), and §5.1.18 (18a/b/c/d) sub-nodes
     ve_nodes = ([str(i) for i in range(1, 20)]
                 + ['17a', '17b', '17c', '17d']
                 + ['14a', '14b', '14c', '14d']
-                + ['15a', '15b', '15c', '15d'])
+                + ['15a', '15b', '15c', '15d']
+                + ['18a', '18b', '18c', '18d'])
 
     for node in ve_nodes:
         # Sub-nodes (17a/17b/17c/17d) keyed by string; main nodes by int
@@ -724,4 +827,10 @@ def get_default_priors() -> dict:
         "15b": 0.45,  # Tariff-sensitive offence (offence-text derived)
         "15c": 0.40,  # Tariff-sensitive sentence length (sentence-type derived)
         "15d": 0.55,  # Doctrine absent (default absent until SCE attested)
+        # §5.1.18 sub-nodes — defaults reflect conservative starting points
+        # consistent with Morris Heuristic Audit empirical findings
+        "18a": 0.45,  # Jurisdiction sensitivity (default no Morris/Ellis until detected)
+        "18b": 0.55,  # SCE presence in reasons (default absent until tagged)
+        "18c": 0.60,  # SCE substance (default nominal-or-absent — Morris Audit)
+        "18d": 0.50,  # Doctrinal tagging compliance (default Incomplete; downstream of N10)
     }
