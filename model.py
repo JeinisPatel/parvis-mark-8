@@ -129,10 +129,10 @@ NODE_META = {
     # ── §5.1.17 sub-nodes — four parents of N17 (added per JP confirmation C1) ──
     # These are sub-nodes of N17 (similar to N10a-N10d for Gladue misapplication factors).
     # IDs stored as strings to disambiguate from int node IDs.
-    "17a": {"name": "Jurisdictional policing disparity",          "short": "Disparity index",       "type": "distortion", "ev": True},
-    "17b": {"name": "Enforcement-disparity engagement",           "short": "Disparity engagement",  "type": "distortion", "ev": True},
-    "17c": {"name": "Non-violent charge density",                 "short": "Non-violent density",   "type": "distortion", "ev": True},
-    "17d": {"name": "Surveillance-triggered entries",             "short": "Surveillance entries",  "type": "distortion", "ev": True},
+    "17a": {"name": "Jurisdictional policing disparity",          "short": "Disparity",       "type": "distortion", "ev": True},
+    "17b": {"name": "Enforcement-disparity engagement",           "short": "Engagement",  "type": "distortion", "ev": True},
+    "17c": {"name": "Non-violent charge density",                 "short": "Non-violent",   "type": "distortion", "ev": True},
+    "17d": {"name": "Surveillance-triggered entries",             "short": "Surveillance",  "type": "distortion", "ev": True},
     # ── Structural Output (CH5 iii) ──────────────────────────────────────────
     20: {"name": "Dangerous offender designation",                "short": "DO designation",        "type": "output",     "ev": False},
 }
