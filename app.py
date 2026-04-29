@@ -1204,12 +1204,22 @@ with TABS[0]:
     _struct_nodes = {1, 5, 19}  # node IDs treated as structural in the Summary panel
     _drv_up = [d for d in _drv_up_raw if d["nid"] not in _struct_nodes][:5]
     _drv_dn = [d for d in _drv_dn_raw if d["nid"] not in _struct_nodes][:5]
+    # Build _struct_drivers directly from _struct_nodes + P — these cards 
+    # render unconditionally because they represent structural conditioning
+    # of the inference, independent of whether the underlying node happens
+    # to surface in the top-k drivers ranking.
     _struct_drivers = []
-    for d in _drv_up_raw + _drv_dn_raw:
-        if d["nid"] in _struct_nodes and d not in _struct_drivers:
-            _struct_drivers.append(d)
-    # Sort structural by node id for a stable display order (N1, N5, N19)
-    _struct_drivers.sort(key=lambda d: d["nid"])
+    for nid in sorted(_struct_nodes):
+        _meta = NODE_META.get(nid, {})
+        _t = _meta.get("type", "")
+        _struct_drivers.append({
+            "nid":        nid,
+            "short":      _meta.get("short", f"N{nid}"),
+            "type_":      _t,
+            "type_label": TL.get(_t, _t.title()),
+            "color":      TC.get(_t, "#888"),
+            "p":          float(P.get(nid, 0.0)),
+        })
     _comp = _completeness_state()
     _doc = _doctrinal_frame()
     _case_id   = (st.session_state.get("case_id") or "").strip() or "Untitled case"
