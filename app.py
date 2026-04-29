@@ -304,6 +304,53 @@ N7_MULTIPLIERS = {
     "Heavily Discounted": 0.30,   # 70% reduction
 }
 
+# ── N6 (Ineffective Assistance of Counsel) — §RM.6 ──────────────────────
+# N6 is upstream of N7. Per §5.1.6, four binary indicators aggregate to a
+# tri-state ordinal grade; per §RM.6, that grade additively boosts N7's
+# per-conviction bail-denial signal before threshold logic.
+
+# The four indicator keys; UI checkboxes set these on each conviction.
+# Adverse direction noted in inline comment.
+N6_INDICATORS = (
+    "n6_no_sce",           # adverse: SCE not submitted
+    "n6_inadequate_counsel",   # adverse: counsel culturally inadequate
+    "n6_judicial_criticism",   # adverse: judicial criticism of representation present
+    "n6_disproportionate",     # adverse: procedural outcome disproportionate
+)
+
+# Threshold scheme per §RM.6.3 (JP 2026-04-28: option (c)).
+# 0 adverse  -> High;  1, 2, or 3 adverse -> Moderate;  4 adverse -> Low.
+N6_GRADE_BY_COUNT = {0: "High", 1: "Moderate", 2: "Moderate", 3: "Moderate", 4: "Low"}
+
+# Additive boost to N7's per-conviction bail-denial signal per §RM.6.4.
+# Conservative values per §RM.2 conservatism principle.
+N6_BOOST_BY_GRADE = {
+    "High":     0.00,
+    "Moderate": 0.10,
+    "Low":      0.20,
+}
+
+
+def _n6_count_adverse(conviction):
+    """Return the count of adverse N6 indicators for this conviction (0-4)."""
+    adj = conviction.get("adj", {}) or {}
+    return sum(1 for k in N6_INDICATORS if bool(adj.get(k, False)))
+
+
+def _n6_grade_for_conviction(conviction):
+    """
+    Return the N6 confidence grade for a conviction per §RM.6.3.
+    Grade depends only on this conviction's own indicators (no propagation
+    per §RM.6.6: different counsel, different files).
+    """
+    return N6_GRADE_BY_COUNT[_n6_count_adverse(conviction)]
+
+
+def _n6_boost_for_conviction(conviction):
+    """Return the N6 additive boost (0.00 / 0.10 / 0.20) for this conviction."""
+    return N6_BOOST_BY_GRADE[_n6_grade_for_conviction(conviction)]
+
+
 # Propagation factor scheme (§RM.5.4): when a downstream conviction has its
 # own affirmative bail-denial signal AND a prior conviction on the same
 # record has been graded as Discounted or Heavily Discounted, the per-conviction
@@ -345,8 +392,10 @@ def _n7_threshold_grade(combined_indicator):
 
 def _n7_grades_chronological(criminal_record_chronological):
     """
-    Compute per-conviction grades in chronological order, applying the
-    cascade-propagation factor where applicable.
+    Compute per-conviction grades in chronological order, applying:
+      (1) N6 additive boost (per §RM.6.4)
+      (2) Cascade propagation factor (per §RM.5.4)
+    in that order, per §RM.6.5.
 
     Per §RM.5.4: a conviction's per-conviction bail-denial signal is
     multiplied by the strongest propagation factor from earlier graded
@@ -356,8 +405,14 @@ def _n7_grades_chronological(criminal_record_chronological):
       (b) at least one earlier conviction is graded Discounted or
           Heavily Discounted
 
-    Returns: list of (grade, multiplier, propagation_factor_applied) tuples
-    in the same order as the input record.
+    Per §RM.6.4: the per-conviction bail-denial signal is first boosted
+    additively by the N6 confidence grade (+0.00 / +0.10 / +0.20) before
+    any propagation factor is applied. N6 conditioning is per-conviction
+    only; representation quality on Conviction A does not propagate
+    forward to Conviction B (different counsel, different files).
+
+    Returns: list of (n7_grade, n7_multiplier, propagation_factor, n6_grade)
+    tuples in the same order as the input record.
     """
     if not criminal_record_chronological:
         return []
@@ -368,8 +423,20 @@ def _n7_grades_chronological(criminal_record_chronological):
     for e in criminal_record_chronological:
         per_conv_bail = float(e.get("adj", {}).get("bail", 0.0))
 
-        # Determine propagation factor: strongest of any earlier tainted
-        # conviction. If no earlier tainted convictions, factor = 1.00.
+        # ── (1) N6 conditioning per §RM.6.4 ───────────────────────────────
+        # N6 boost only applies where the conviction has its own bail-denial
+        # signal. Per §RM.6.4 final paragraph: "The architecture does not
+        # apply N6's conditioning where N6 has nothing to condition."
+        n6_grade = _n6_grade_for_conviction(e)
+        if per_conv_bail > 0.0:
+            n6_addition = N6_BOOST_BY_GRADE[n6_grade]
+        else:
+            n6_addition = 0.0
+        n6_conditioned = per_conv_bail + n6_addition
+
+        # ── (2) Cascade propagation per §RM.5.4 ───────────────────────────
+        # Propagation factor: strongest of any earlier tainted conviction.
+        # If no earlier tainted convictions, factor = 1.00.
         if per_conv_bail > 0.0 and earlier_grades:
             applicable_factors = [
                 N7_PROPAGATION_FACTOR[g] for g in earlier_grades
@@ -377,20 +444,18 @@ def _n7_grades_chronological(criminal_record_chronological):
             ]
             propagation = max(applicable_factors) if applicable_factors else 1.00
         else:
-            # If conviction has no own bail-denial signal, propagation
-            # cannot apply (per §RM.5.3: the cascade chain requires actual
-            # pre-trial detention on the downstream conviction).
+            # No own bail signal: propagation cannot apply (§RM.5.3).
             propagation = 1.00
 
-        # Apply propagation factor to per-conviction signal
-        boosted_signal = per_conv_bail * propagation
+        # ── Combined boosted signal: (bail + N6) × propagation ──────────
+        boosted_signal = n6_conditioned * propagation
 
-        # Apply threshold logic
-        grade = _n7_threshold_grade(boosted_signal)
-        multiplier = N7_MULTIPLIERS[grade]
+        # Threshold logic
+        n7_grade = _n7_threshold_grade(boosted_signal)
+        n7_multiplier = N7_MULTIPLIERS[n7_grade]
 
-        results.append((grade, multiplier, propagation))
-        earlier_grades.append(grade)
+        results.append((n7_grade, n7_multiplier, propagation, n6_grade))
+        earlier_grades.append(n7_grade)
 
     return results
 
@@ -441,7 +506,7 @@ def _n7_aggregate_record_weight(criminal_record, n7_posterior=None):
     # Compute grades in chronological order (assumed already sorted by
     # caller; criminal_record.sort by year ascending happens upstream).
     chronological_results = _n7_grades_chronological(criminal_record)
-    grades = [(grade, mult) for grade, mult, _prop in chronological_results]
+    grades = [(grade, mult) for grade, mult, _prop, _n6 in chronological_results]
     adjusted_weights = [w * m for w, (_, m) in zip(nominal_weights, grades)]
 
     return (
@@ -555,7 +620,7 @@ def _jump_cumulative_chain(criminal_record_chronological):
     # Run the chronological grading pass first to get each conviction's
     # reliability grade for jump-principle weighting.
     grading = _n7_grades_chronological(criminal_record_chronological)
-    for e, (grade, _mult, _prop) in zip(criminal_record_chronological, grading):
+    for e, (grade, _mult, _prop, _n6) in zip(criminal_record_chronological, grading):
         nominal_own = _jump_ceiling_for_conviction(e)
         weight = JUMP_WEIGHT_BY_GRADE.get(grade, 1.00)
         weighted_own = nominal_own * weight
@@ -5375,6 +5440,52 @@ with TABS[4]:
             adj_time   = st.slider("Temporal attenuation (age / distance)",    0.0, 1.0, 0.0,0.05, key="cr_adj_time",
                 help="R v Boutilier [2017] SCC 64 — set affirmatively where this conviction is sufficiently remote that age-burnout attenuation applies")
 
+        # ── N6 (Ineffective Assistance of Counsel) indicators per §5.1.6 §3 ──
+        # Four binary indicators aggregate per §RM.6.3 to a confidence grade
+        # (High / Moderate / Low) which conditions the N7 cascade signal.
+        st.markdown(
+            "<div style='margin-top:14px;margin-bottom:6px'>"
+            "<span style='font-family:Fraunces,Georgia,serif;font-size:0.95rem;"
+            "font-weight:500;color:#1A1A1A'>Representation quality indicators (N6)</span>"
+            "<span style='font-family:Fraunces,serif;font-style:italic;font-size:0.78rem;"
+            "color:#707070;margin-left:8px'>Ch 5 §5.1.6 · Appendix RM §RM.6</span>"
+            "<div style='font-family:Fraunces,serif;font-style:italic;font-size:0.78rem;"
+            "color:#707070;margin-top:3px;line-height:1.5'>"
+            "Check each indicator that is adverse for this conviction. Any adverse "
+            "indicator drops confidence to <em>Moderate</em>; all four adverse drops "
+            "to <em>Low</em>. Confidence grade conditions the N7 bail-denial cascade "
+            "signal additively (+0.00 / +0.10 / +0.20)."
+            "</div></div>",
+            unsafe_allow_html=True,
+        )
+        cn1, cn2 = st.columns(2)
+        with cn1:
+            adj_n6_no_sce = st.checkbox(
+                "SCE not submitted",
+                value=False,
+                key="cr_adj_n6_no_sce",
+                help="§5.1.6 §3.i — adverse where Gladue, IRCA, or equivalent systemic "
+                     "context evidence was not meaningfully advanced at the original proceeding")
+            adj_n6_inadequate_counsel = st.checkbox(
+                "Counsel culturally inadequate",
+                value=False,
+                key="cr_adj_n6_inadequate_counsel",
+                help="§5.1.6 §3.ii — adverse where counsel did not demonstrate familiarity "
+                     "with applicable social context doctrine and its evidentiary use")
+        with cn2:
+            adj_n6_judicial_criticism = st.checkbox(
+                "Judicial criticism of representation",
+                value=False,
+                key="cr_adj_n6_judicial_criticism",
+                help="§5.1.6 §3.iii — adverse where the original court expressed concern, "
+                     "criticism, or reservation regarding the quality of advocacy")
+            adj_n6_disproportionate = st.checkbox(
+                "Procedural outcome disproportionate",
+                value=False,
+                key="cr_adj_n6_disproportionate",
+                help="§5.1.6 §3.iv — adverse where the procedural outcome was markedly "
+                     "disproportionate relative to offence gravity and comparator cases")
+
         # Sentence type modifier — CSO/probation/discharge suggests limited dangerousness
         _sent_modifier = {
             "Federal custody (2+ years)":         1.00,
@@ -5464,6 +5575,11 @@ with TABS[4]:
                         "police": adj_police,
                         "mm":     adj_mm,
                         "time":   adj_time,
+                        # N6 (IAC) indicators per §5.1.6 / §RM.6
+                        "n6_no_sce":              adj_n6_no_sce,
+                        "n6_inadequate_counsel":  adj_n6_inadequate_counsel,
+                        "n6_judicial_criticism":  adj_n6_judicial_criticism,
+                        "n6_disproportionate":    adj_n6_disproportionate,
                     },
                     "raw_weight":  1.0,
                     "cal_weight":  cal_wt,
@@ -5602,11 +5718,12 @@ with TABS[4]:
                 f"padding-top:10px;border-top:1px solid {_n7_border}'>"
                 f"Each conviction is graded against §5.1.7's tri-state ordinal "
                 f"(Unmodified / Discounted / Heavily Discounted) on its own facts "
-                f"— the conviction's own bail-denial signal, with cascade propagation "
-                f"from earlier tainted convictions where applicable per §RM.5. "
-                f"This node never removes convictions; it qualifies how they may be "
-                f"used. Multipliers — 1.00 / 0.60 / 0.30 — are conservative "
-                f"operationalisations of the §5.1.7 ordinal grades."
+                f"— the conviction's own bail-denial signal, additively conditioned "
+                f"by N6 representation quality (§RM.6.4) and multiplied by §RM.5 "
+                f"cascade propagation from earlier tainted convictions where "
+                f"applicable. This node never removes convictions; it qualifies how "
+                f"they may be used. Multipliers — 1.00 / 0.60 / 0.30 — are "
+                f"conservative operationalisations of the §5.1.7 ordinal grades."
                 f"</div>"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -5617,7 +5734,7 @@ with TABS[4]:
                 st.markdown("""
 **Mechanism (Chapter 5 §5.1.7).** The bail-denial cascade node (N7) tracks the procedural conditions under which prior convictions were produced. Where bail was denied and ineffective representation, absent social context evidence, or marginalisation cluster, the conviction's evidentiary reliability is qualified — not removed.
 
-**Per-conviction grading.** Each conviction is graded on its own facts. The architecture reads the conviction's own `adj.bail` value (set when the conviction was added) and applies the threshold logic below. Per §5.1.7, the unit of analysis is the specific guilty plea produced under coercive procedural conditions, not the offender's record as a whole — convictions produced under fair conditions are not discounted on the basis of cascade conditions affecting other convictions on the record.
+**Per-conviction grading.** Each conviction is graded on its own facts. The architecture reads the conviction's own `adj.bail` value (set when the conviction was added), applies the §RM.6.4 N6 confidence boost (additive, +0.00/+0.10/+0.20 for High/Moderate/Low representation confidence), then applies the §RM.5 propagation factor (multiplicative, from any earlier tainted convictions), and finally applies the threshold logic below. Per §5.1.7, the unit of analysis is the specific guilty plea produced under coercive procedural conditions, not the offender's record as a whole — convictions produced under fair conditions are not discounted on the basis of cascade conditions affecting other convictions on the record.
 
 **Cascade propagation (§RM.5).** Where Conviction A on the record has been graded *Discounted* or *Heavily Discounted*, and a subsequent Conviction B has its own affirmative bail-denial signal, the architecture recognises that the bail conditions affecting Conviction B may themselves have been conditioned by Conviction A's presence on the record (per *R v Antic* on prior records and bail). Conviction B's bail-denial signal is multiplied by a propagation factor before threshold logic — 1.15 for upstream *Discounted*, 1.30 for upstream *Heavily Discounted*. Where multiple upstream tainted convictions exist, only the strongest factor is applied. Propagation requires the downstream conviction to have its own affirmative signal — bail granted on Conviction B breaks the chain.
 
@@ -5633,6 +5750,121 @@ with TABS[4]:
 **Doctrinal source.** *R v Antic* [2017] SCC 27 (bail jurisprudence); Tolppanen Report (2018) on bail-denial cascade dynamics; Chapter 5 §5.1.7 (Wrongful Conviction Guilty Plea cascade modelling); Chapter 3 §3.4.5 (inferential inertia) and §3.5.3 (jump principle) for the doctrinal substrate of cascade propagation; Appendix RM §RM.5 for the operational specification.
 
 **Scope of this implementation.** This is the Node 7 distortion only. The full set of cascade distortions (N6 IAC, N14 over-policing, N15 mandatory-minimum-era anchoring, N17 collider bias, N18 dynamic risk integration) extends the same architectural pattern in subsequent implementation work.
+                """)
+
+            # ── N6 (IAC) aggregate panel — §RM.6 ─────────────────────────────
+            # Per-conviction confidence grades and aggregate distribution.
+            _n6_grades_per_conv = [g for (_g7, _m7, _p7, g) in _n7_grading]
+            _n6_count = {
+                "High":     sum(1 for g in _n6_grades_per_conv if g == "High"),
+                "Moderate": sum(1 for g in _n6_grades_per_conv if g == "Moderate"),
+                "Low":      sum(1 for g in _n6_grades_per_conv if g == "Low"),
+            }
+            _n6_avg_boost = (
+                sum(N6_BOOST_BY_GRADE[g] for g in _n6_grades_per_conv) / len(_n6_grades_per_conv)
+                if _n6_grades_per_conv else 0.0
+            )
+            # Accent colour: keyed on average boost magnitude
+            if _n6_avg_boost < 0.03:
+                _n6_accent = "#3B6D11"; _n6_bg = "#F4F8EE"; _n6_border = "#C5D7AC"
+            elif _n6_avg_boost < 0.12:
+                _n6_accent = "#BA7517"; _n6_bg = "#FAEEDA"; _n6_border = "#E5CC95"
+            else:
+                _n6_accent = "#A32D2D"; _n6_bg = "#FCEBEB"; _n6_border = "#E5B5B5"
+
+            st.markdown(
+                f"<div style='background:{_n6_bg};border:1px solid {_n6_border};"
+                f"border-left:3px solid {_n6_accent};border-radius:8px;"
+                f"padding:14px 18px;margin:14px 0 8px 0'>"
+                # Header row
+                f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:10px'>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"font-weight:600;padding:2px 8px;border-radius:4px;color:white;"
+                f"background:{_n6_accent}'>N6</div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.0rem;"
+                f"font-weight:500;color:#1A1A1A'>"
+                f"Reliability of Representation · IAC conditioning</div>"
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.78rem;color:#707070;margin-left:auto'>"
+                f"Ch 5 §5.1.6 · Appendix RM §RM.6</div>"
+                f"</div>"
+                # Body: average boost and grade distribution
+                f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;"
+                f"margin-top:6px'>"
+                # Average boost
+                f"<div>"
+                f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                f"color:#707070;font-weight:600;margin-bottom:3px'>Average boost</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:1.45rem;"
+                f"font-weight:600;color:{_n6_accent}'>+{_n6_avg_boost:.3f}</div>"
+                f"<div style='font-size:0.72rem;color:#9E9E9E;font-family:Fraunces,serif;"
+                f"font-style:italic'>mean N6 conditioning</div>"
+                f"</div>"
+                # Mechanism note
+                f"<div>"
+                f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                f"color:{_n6_accent};font-weight:600;margin-bottom:3px'>Mechanism</div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:0.84rem;"
+                f"font-weight:500;color:{_n6_accent};line-height:1.3'>Additive · upstream of N7</div>"
+                f"<div style='font-size:0.72rem;color:#9E9E9E;font-family:Fraunces,serif;"
+                f"font-style:italic'>conditions cascade signal</div>"
+                f"</div>"
+                # Grade distribution
+                f"<div>"
+                f"<div style='font-size:0.66rem;text-transform:uppercase;letter-spacing:0.10em;"
+                f"color:#707070;font-weight:600;margin-bottom:3px'>Confidence distribution</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.82rem;"
+                f"color:#3A3A3A;line-height:1.5'>"
+                f"<div>High · {_n6_count['High']}</div>"
+                f"<div>Moderate · {_n6_count['Moderate']}</div>"
+                f"<div>Low · {_n6_count['Low']}</div>"
+                f"</div>"
+                f"</div>"
+                f"</div>"
+                # Doctrinal caption
+                f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                f"font-size:0.80rem;color:#707070;margin-top:12px;line-height:1.55;"
+                f"padding-top:10px;border-top:1px solid {_n6_border}'>"
+                f"Each conviction is graded against §5.1.6's tri-state ordinal "
+                f"(High / Moderate / Low confidence) on its own facts — the count of "
+                f"adverse indicators among SCE submission, counsel competence, judicial "
+                f"commentary, and procedural outcome. The grade additively boosts the "
+                f"N7 bail-denial signal (+0.00 / +0.10 / +0.20 per §RM.6.4) before "
+                f"§RM.5 propagation. N6 does not directly modify cal_weight per §RM.6.6."
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Methodology disclosure expander for N6
+            with st.expander("Methodology — N6 reliability of representation", expanded=False):
+                st.markdown("""
+**Mechanism (Chapter 5 §5.1.6).** Node 6 models the reliability of representation that produced each conviction. Per §5.1.6 §1, the node does *not* adjudicate constitutional ineffective-assistance breach; it conditions the architecture's confidence in the products of representation that may have been deficient.
+
+**Indicators (§5.1.6 §3).** Four binary indicators per conviction:
+
+1. **SCE not submitted** — adverse where *Gladue*, *IRCA*, or equivalent systemic context evidence was not meaningfully advanced.
+2. **Counsel culturally inadequate** — adverse where counsel did not demonstrate familiarity with applicable social context doctrine and its evidentiary use.
+3. **Judicial criticism of representation** — adverse where the original court expressed concern, criticism, or reservation regarding the quality of advocacy.
+4. **Procedural outcome disproportionate** — adverse where the procedural outcome was markedly disproportionate relative to offence gravity and comparator cases.
+
+**Threshold scheme (§RM.6.3).** Confidence grade keyed to count of adverse indicators:
+- 0 adverse → **High** confidence
+- 1, 2, or 3 adverse → **Moderate** confidence
+- 4 adverse → **Low** confidence (compound case)
+
+**Conditioning of N7 (§RM.6.4).** N6 grade additively boosts the per-conviction bail-denial signal *before* §RM.5 propagation:
+- High → +0.00 (no boost)
+- Moderate → +0.10
+- Low → +0.20
+
+The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel materially increases the probability that a plea reflects constraint rather than culpability." Where the conviction has no own bail-denial signal (`adj.bail = 0`), N6 conditioning does not apply — N6 conditions how strongly we read bail-denial evidence, but does not substitute for its absence.
+
+**Order of operations (§RM.6.5).** `boosted_signal = (adj.bail + N6_addition) × propagation_factor`. N6 conditioning is per-conviction; §RM.5 propagation is between-conviction. Per-conviction conditioning logically precedes between-conviction propagation.
+
+**Scope (§RM.6.6).** N6 does *not* directly discount `cal_weight` — its sole architectural role is to condition N7's cascade computation, avoiding double-counting. N6 does not propagate forward like §RM.5 — different counsel, different files, different proceedings. N6 does not adjudicate constitutional breach — *Low* confidence is an architectural assessment, not a finding.
+
+**Doctrinal source.** *Chapter 5 §5.1.6* (IAC node specification); *Charter* ss. 7 and 15 (unequal access to effective representation); the standard articulated in *R v R.R.* and similar competence jurisprudence; *Appendix RM §RM.6* (operational specification).
                 """)
 
             # ── Jump Principle panel (Ch 3 §3.5.3) ──────────────────────────
@@ -5776,7 +6008,7 @@ with TABS[4]:
             # ── N7 reliability modifier for this conviction (Ch 5 §5.1.7 + §RM.5.4) ──
             # Use chronological grading (accounts for cascade propagation
             # from earlier tainted convictions).
-            _n7_grade_card, _n7_mult_card, _n7_prop_card = _n7_grading[i]
+            _n7_grade_card, _n7_mult_card, _n7_prop_card, _n6_grade_card = _n7_grading[i]
             _n7_eff_pct    = e["cal_weight"] * _n7_mult_card * 100
             # Grade-specific colour
             _grade_col = {
@@ -5871,6 +6103,18 @@ with TABS[4]:
                 f"font-weight:500;color:{_grade_col};line-height:1.2'>{_n7_grade_card}</div>"
                 f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
                 f"color:{_grade_col};margin-top:1px'>×{_n7_mult_card:.2f} → {_n7_eff_pct:.0f}%</div>"
+                f"</div>"
+                # N6 confidence in representation (Chapter 5 §5.1.6 / §RM.6)
+                f"<div style='border-top:1px solid #EFEDE7;padding-top:6px;margin-top:6px'>"
+                f"<div style='font-size:0.62rem;text-transform:uppercase;letter-spacing:0.08em;"
+                f"color:#9E9E9E;font-weight:600;margin-bottom:2px'>N6 · IAC</div>"
+                f"<div style='font-family:Fraunces,Georgia,serif;font-size:0.84rem;"
+                f"font-weight:500;color:" + (
+                    "#3B6D11" if _n6_grade_card == "High" else
+                    "#BA7517" if _n6_grade_card == "Moderate" else "#A32D2D"
+                ) + f";line-height:1.2'>{_n6_grade_card}</div>"
+                f"<div style='font-family:JetBrains Mono,monospace;font-size:0.74rem;"
+                f"color:#707070;margin-top:1px'>+{N6_BOOST_BY_GRADE[_n6_grade_card]:.2f} boost</div>"
                 f"</div>"
                 # Jump-principle ceiling effect (Ch 3 §3.5.3)
                 f"<div style='border-top:1px solid #EFEDE7;padding-top:6px;margin-top:6px'>"
