@@ -819,6 +819,8 @@ def _doctrinal_frame():
 # ── Session state ─────────────────────────────────────────────────────────────
 def _init():
     defs = {"model":None,"engine":None,"profile_ev":{},"gladue_checked":set(),"criminal_record":[],"cr_doc_adj":{},"saved_scenarios":{},
+            # §5.1.17 N17b counsel attestation — override path per JP M3 confirmation
+            "n17b_counsel_attestation":False,
             "sce_checked":set(),"sce_values":{},"manual_ev":{},"doc_adj":{},"posteriors":{},
             "qdiags":{},"conn":"moderate","enex":"relevant","scefw":"morris","doc_res":[],"qbism_plain":"","qbism_dm":{},
             "case_id":"","case_jur":""}
@@ -937,6 +939,180 @@ def _compute_sce_corrections_by_gate():
     return corrections_by_gate
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §5.1.17 N17 sub-node signal computation
+#
+# Per JP confirmation (Apr 28-29, 2026):
+#   M1: N17a derived from jurisdiction with Moderate default
+#   M2: N17c/N17d pattern-matched from criminal record now; schema migration later
+#   M3: N17b OR-gate over Gladue tab evidence with counsel attestation override
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Strong-match Gladue/SCE factor IDs that engage §5.1.17 §2 enforcement-disparity
+# patterns. OR-gate: any one fires → N17b signal high.
+_N17B_TRIGGER_FACTORS = {
+    "g_op",   # Over-policed community of origin
+    "s_ra",   # Anti-Black / racialized racism documented
+    "s_rp",   # Documented racial profiling
+    "s_bi",   # Anti-Black systemic incarceration patterns
+    "s_bb",   # Anti-Black bail practices documented
+    "s_nb",   # Neighbourhood structural disadvantage
+}
+
+# §5.1.17 §2 surveillance-trigger keyword patterns. Lowercased substring match
+# on offence text. Conservative — false positives possible (e.g. "possession of
+# stolen property" is included; counsel can override at per-conviction level
+# via the existing adj_police slider).
+_N17D_SURVEILLANCE_PATTERNS = (
+    "breach",
+    "fail to comply",
+    "fail to appear",
+    "administration of justice",
+    "aoj",
+    "possession",
+)
+
+# Violence keywords — any match disqualifies an offence from being counted as
+# "non-violent" for N17c regardless of seriousness tier. Matches §5.1.17 §2's
+# distinction between "non-violent charges" (low-harm/compliance) and
+# violence-driven entries.
+_N17C_VIOLENCE_PATTERNS = (
+    "assault",
+    "robbery",
+    "manslaughter",
+    "murder",
+    "homicide",
+    "sexual",
+    "firearm",
+    "aggravated",
+    "weapon",
+)
+
+
+def _n17a_signal(case_jur: str) -> int:
+    """
+    N17a — Jurisdictional Policing Disparity Index.
+
+    Per JP M1 confirmation: Moderate default for every jurisdiction with override
+    available later. Currently returns binary state: 0 (Low/Moderate) for default,
+    1 (High) only if jurisdiction is known to have documented over-policing
+    patterns AND we have explicit override evidence.
+
+    Conservative architectural choice: do not embed contested empirical claims
+    about specific provinces in the constructive-proof CPT. The override path
+    (counsel-input slider) is reserved for Stage 3 if needed.
+
+    Returns: 0 (Low/Moderate disparity) or 1 (High disparity)
+    """
+    # M1 conservative default: every jurisdiction starts Low/Moderate (state 0).
+    # Override mechanism deferred to Stage 3.
+    return 0
+
+
+def _n17b_signal() -> int:
+    """
+    N17b — Enforcement-Disparity Engagement.
+
+    Per JP M3 confirmation: OR-gate over Gladue/SCE tab evidence with counsel
+    attestation override. If any §5.1.17 §2 trigger factor is checked, OR if
+    counsel has attested, return 1 (High).
+
+    Read from st.session_state.gladue_checked (Gladue tab) and
+    st.session_state.sce_checked (Morris/Ellis SCE tab) — both contribute since
+    §5.1.17 §2 cites both Indigenous and Black community over-policing patterns.
+
+    Returns: 0 (no engagement) or 1 (documented engagement)
+    """
+    gladue = st.session_state.get("gladue_checked", set()) or set()
+    sce = st.session_state.get("sce_checked", set()) or set()
+    attestation = st.session_state.get("n17b_counsel_attestation", False)
+
+    # OR-gate: any trigger factor present, or attestation
+    if attestation:
+        return 1
+    if any(fid in _N17B_TRIGGER_FACTORS for fid in gladue):
+        return 1
+    if any(fid in _N17B_TRIGGER_FACTORS for fid in sce):
+        return 1
+    return 0
+
+
+def _n17c_signal(criminal_record) -> int:
+    """
+    N17c — Non-Violent Charge Density.
+
+    Per JP M2 confirmation: pattern-match offence text now, schema migration
+    later. Computes proportion of non-violent charges in the record. Threshold
+    at 0.50 — if more than half the record is low-harm/non-violent, signal High.
+
+    A conviction is counted as non-violent when:
+      (a) seriousness tier is Minor or Moderate, AND
+      (b) offence text contains no violence keywords
+
+    Returns: 0 (low non-violent density) or 1 (high non-violent density)
+    """
+    if not criminal_record:
+        return 0
+    total = len(criminal_record)
+    if total == 0:
+        return 0
+    non_violent_count = 0
+    for entry in criminal_record:
+        offence = (entry.get("offence", "") or "").lower()
+        seriousness_label = (entry.get("seriousness_label", "") or "").lower()
+        # Check seriousness tier
+        is_low_tier = ("minor" in seriousness_label or "moderate" in seriousness_label)
+        # Check for violence keywords
+        has_violence = any(p in offence for p in _N17C_VIOLENCE_PATTERNS)
+        if is_low_tier and not has_violence:
+            non_violent_count += 1
+    density = non_violent_count / total
+    return 1 if density > 0.50 else 0
+
+
+def _n17d_signal(criminal_record) -> int:
+    """
+    N17d — Surveillance-Triggered Entries.
+
+    Per JP M2 confirmation: pattern-match offence text for surveillance signatures
+    per §5.1.17 §2: breaches, AOJ offences, simple possession. Threshold at 0.30
+    — even moderate density of surveillance-triggered entries is concerning per
+    §5.1.17 §5 ("when surveillance-triggered entries dominate").
+
+    Returns: 0 (few surveillance-triggered) or 1 (many surveillance-triggered)
+    """
+    if not criminal_record:
+        return 0
+    total = len(criminal_record)
+    if total == 0:
+        return 0
+    surveillance_count = 0
+    for entry in criminal_record:
+        offence = (entry.get("offence", "") or "").lower()
+        if any(p in offence for p in _N17D_SURVEILLANCE_PATTERNS):
+            surveillance_count += 1
+    density = surveillance_count / total
+    return 1 if density >= 0.30 else 0
+
+
+def _compute_n17_evidence() -> dict:
+    """
+    Compute the four §5.1.17 N17 sub-node evidence states for inference.
+
+    Returns dict mapping pgmpy node IDs ('17a', '17b', '17c', '17d') to
+    binary states (0 or 1). Suitable for passing as hard evidence to
+    query_do_risk.
+    """
+    case_jur = st.session_state.get("case_jur", "") or ""
+    record = st.session_state.get("criminal_record", []) or []
+    return {
+        "17a": _n17a_signal(case_jur),
+        "17b": _n17b_signal(),
+        "17c": _n17c_signal(record),
+        "17d": _n17d_signal(record),
+    }
+
+
 # ── Inference ─────────────────────────────────────────────────────────────────
 def run_inf():
     from model import compute_do_risk
@@ -954,6 +1130,16 @@ def run_inf():
         if prob>=0.85 or prob<=0.15:  # Only very certain manual overrides
             hard_ev[str(nid)]=1 if prob>=0.5 else 0
     hard_ev.pop("20",None)
+
+    # §5.1.17 N17 sub-node evidence — feed N17a/N17b/N17c/N17d states to VE
+    # so that N17's posterior is computed against §5.1.17 §7 illustrative CPT.
+    # Computed from session state via the four signal helpers above.
+    # Manual overrides (st.session_state.manual_ev) take precedence if present.
+    n17_ev = _compute_n17_evidence()
+    for sub_nid, state in n17_ev.items():
+        if sub_nid not in hard_ev:
+            hard_ev[sub_nid] = state
+
     post=query_do_risk(st.session_state.engine, hard_ev)
 
     # Step 2: Apply profile evidence as direct continuous posterior values
@@ -1822,6 +2008,36 @@ with TABS[2]:
     with _ci_col2:
         st.text_input("Jurisdiction / location", key="case_jur",
                       placeholder="e.g. Calgary · Alberta")
+
+    # ── §5.1.17 N17b counsel attestation (override path) ──────────────────
+    # Per JP confirmation M3: primary signal is OR-gate over Gladue/SCE tab
+    # evidence; this checkbox is the override for cases where documentation
+    # exists but is not yet captured in the Gladue/SCE tab fields, or where
+    # counsel's professional judgment supports engagement that the structured
+    # fields don't fully accommodate.
+    st.markdown(
+        "<div style='margin:14px 0 4px 0; font-size:0.78rem; "
+        "font-family:DM Sans, sans-serif; color:#5A5A5A; "
+        "letter-spacing:0.04em; text-transform:uppercase;'>"
+        "§5.1.17 audit signal (N17b)"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.checkbox(
+        "Counsel attests this case engages documented enforcement-disparity "
+        "patterns per §5.1.17 §2",
+        key="n17b_counsel_attestation",
+        help=(
+            "§5.1.17 §2 references documented over-policing patterns affecting "
+            "Indigenous and Black communities (carding, proactive patrols, "
+            "compliance-focused enforcement). The primary signal for N17b is "
+            "automatically derived from Gladue/SCE tab fields you populate "
+            "(over-policed community of origin, racial profiling documentation, "
+            "anti-Black bail practices, etc.). Use this attestation only as an "
+            "override where evidence engages §5.1.17 §2 patterns but is not yet "
+            "captured in those structured fields."
+        ),
+    )
 
     # Visual separator below case-id
     st.markdown(
