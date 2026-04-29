@@ -3,6 +3,52 @@ PARVIS — Streamlit Application v Xavier 7
 Jeinis Patel, PhD Candidate and Barrister | University of London | Ethical AI Initiative
 """
 
+# ═════════════════════════════════════════════════════════════════════════════
+# CANONICAL NODE TAXONOMY — Chapter 5 (April 11, 2026)
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# This is the AUTHORITATIVE node taxonomy. Code in this file MUST match these
+# titles when referencing nodes by number. The thesis (Chapter 5) is canonical;
+# the architecture defers to the thesis, never the reverse.
+#
+# i. Substantive Risk Layer
+#    N1   — Criminal Law Burden of Proof (Contextualizer)
+#    N2   — Validated Risk Elevators
+#    N2i  — Temporal Modifier (Criminal Burnout)
+#    N3   — Sexual Offence Risk Profile
+#    N4   — Dynamic Risk Factor Cluster
+#
+# ii. Systemic Distortion and Doctrinal Fidelity Layer
+#    N5   — Current Risk Assessment Tools
+#    N6   — Ineffective Assistance of Counsel
+#    N7   — Denial of Bail → Wrongful Conviction Guilty Plea Cascade
+#    N7i  — Anticipated Credibility Impeachment / Strategic Pleas
+#    N8   — FASD as Dual-Factor in Risk Modeling
+#    N9   — Intergenerational Trauma & Absence of Culturally Grounded Treatment
+#    N10  — Judicial Misapplication of Social Context Evidence (sub-nodes 10a-10d)
+#    N11  — Gaming Risk ("BS") Detector
+#    N12  — Judging the Judge — Judicial Reasoning Reliability
+#    N13  — Structural Systemic Bias (TraceRoute)
+#    N14  — Temporal Distortion and Systemic Misrepresentation in Prior Records
+#    N15  — Interjurisdictional Tariff Distortion
+#    N16  — Doctrinal Tension (s.718.04 vs s.718.2(e))
+#    N17  — Over-Policing and Epistemic Contamination of Criminal Records
+#    N18  — Gladue / Ewert / Morris / Ellis Profile (SCE Integration Audit)
+#    N19  — Collider Bias Node
+#
+# iii. Structural Output
+#    N20  — Dangerous Offender Designation
+#
+# Layer boundaries:
+#    Substantive Risk:           N1-N4 (with N2i)
+#    Systemic Distortion:        N5-N19 (with N7i, N10a-N10d)
+#    Structural Output:          N20
+#
+# When adding new code: VERIFY any node-number reference against this table
+# before adding it. The session memory may carry stale taxonomy from earlier
+# builds; this comment block is the ground truth.
+# ═════════════════════════════════════════════════════════════════════════════
+
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
@@ -101,18 +147,18 @@ div[data-testid="stSlider"] > div > div > div > div > div:hover {
 div[data-testid="stSlider"][aria-label="N2 — Violent history"] > div > div > div > div { background:#A32D2D !important; }
 div[data-testid="stSlider"][aria-label="N3 — Psychopathy (PCL-R)"] > div > div > div > div { background:#A32D2D !important; }
 div[data-testid="stSlider"][aria-label="N4 — Sexual offence"] > div > div > div > div { background:#A32D2D !important; }
-div[data-testid="stSlider"][aria-label="N18 — Dynamic risk"] > div > div > div > div { background:#A32D2D !important; }
+div[data-testid="stSlider"][aria-label="N4 — Dynamic risk"] > div > div > div > div { background:#A32D2D !important; }
 div[data-testid="stSlider"][aria-label="N5 — Invalid risk tools"] > div > div > div > div { background:#185FA5 !important; }
 div[data-testid="stSlider"][aria-label="N6 — Ineffective counsel"] > div > div > div > div { background:#185FA5 !important; }
 div[data-testid="stSlider"][aria-label="N7 — Bail-denial cascade"] > div > div > div > div { background:#185FA5 !important; }
 div[data-testid="stSlider"][aria-label="N9 — FASD"] > div > div > div > div { background:#534AB7 !important; }
-div[data-testid="stSlider"][aria-label="N10 — Intergenerational trauma"] > div > div > div > div { background:#3B6D11 !important; }
-div[data-testid="stSlider"][aria-label="N11 — No cultural treatment"] > div > div > div > div { background:#185FA5 !important; }
-div[data-testid="stSlider"][aria-label="N12 — Gladue misapplication"] > div > div > div > div { background:#185FA5 !important; }
-div[data-testid="stSlider"][aria-label="N13 — Gaming risk"] > div > div > div > div { background:#0F6E56 !important; }
-div[data-testid="stSlider"][aria-label="N14 — Over-policing"] > div > div > div > div { background:#185FA5 !important; }
-div[data-testid="stSlider"][aria-label="N15 — Temporal distortion"] > div > div > div > div { background:#185FA5 !important; }
-div[data-testid="stSlider"][aria-label="N19 — No rehabilitation"] > div > div > div > div { background:#185FA5 !important; }
+div[data-testid="stSlider"][aria-label="N9 — Intergenerational trauma"] > div > div > div > div { background:#3B6D11 !important; }
+div[data-testid="stSlider"][aria-label="N9 — No cultural treatment"] > div > div > div > div { background:#185FA5 !important; }
+div[data-testid="stSlider"][aria-label="N10 — Gladue misapplication"] > div > div > div > div { background:#185FA5 !important; }
+div[data-testid="stSlider"][aria-label="N11 — Gaming risk"] > div > div > div > div { background:#0F6E56 !important; }
+div[data-testid="stSlider"][aria-label="N17 — Over-policing"] > div > div > div > div { background:#185FA5 !important; }
+div[data-testid="stSlider"][aria-label="N14 — Temporal distortion"] > div > div > div > div { background:#185FA5 !important; }
+div[data-testid="stSlider"][aria-label="N9 — No rehabilitation"] > div > div > div > div { background:#185FA5 !important; }
 .dc{border-radius:14px;padding:.9rem 1.1rem;text-align:center}
 .dp{font-size:2.4rem;font-weight:700;font-family:monospace;line-height:1}
 .dl{font-size:.72rem;margin-bottom:3px}
@@ -1136,17 +1182,20 @@ TABS=st.tabs(["📋 Summary","🕸️ Architecture","📋 Profile","💬 Intake 
 with TABS[0]:
     _band_lbl, _band_fg, _band_bg = _summary_band(P[20])
     _drv_up_raw, _drv_dn_raw = _top_drivers(P, k=8)
-    # ── Doctrinal architecture: N1 (structural control) and N17 (properly-weighted-conditional) ──
-    # Per Chapter 5: these nodes encode meta-constraints rather than case-specific drivers.
-    # They are surfaced separately so the drivers panel below shows only case-responsive nodes.
-    _struct_nodes = {1, 17}  # node IDs treated as structural in the Summary panel
+    # ── Doctrinal architecture: N1 (structural control), N17 (over-policing
+    # contamination), and N19 (collider bias) — three structural conditioning nodes ──
+    # Per Chapter 5: N1 encodes evidentiary admissibility burden; N17 encodes
+    # over-policing contamination of records; N19 encodes collider bias / 
+    # selection effects from system entry. These nodes condition the inference 
+    # rather than responding to case-specific evidence.
+    _struct_nodes = {1, 17, 19}  # node IDs treated as structural in the Summary panel
     _drv_up = [d for d in _drv_up_raw if d["nid"] not in _struct_nodes][:5]
     _drv_dn = [d for d in _drv_dn_raw if d["nid"] not in _struct_nodes][:5]
     _struct_drivers = []
     for d in _drv_up_raw + _drv_dn_raw:
         if d["nid"] in _struct_nodes and d not in _struct_drivers:
             _struct_drivers.append(d)
-    # Sort structural by node id for a stable display order (N1 first, then N17)
+    # Sort structural by node id for a stable display order (N1, N17, N19)
     _struct_drivers.sort(key=lambda d: d["nid"])
     _comp = _completeness_state()
     _doc = _doctrinal_frame()
@@ -1345,7 +1394,7 @@ with TABS[0]:
                 """<details class="parvis-land">
 <summary>How to read this</summary>
 <div class="parvis-land-body">
-<p>The architecture comprises three substantive layers and one cross-cutting diagnostic layer. The <em>Substantive Risk Layer</em> (Nodes 1–4) represents empirically supported risk indicators subject to Canadian burdens of proof and proportionality constraints. The <em>Systemic Distortion and Doctrinal Fidelity Layer</em> (Nodes 5–17) captures mechanisms through which criminal records and risk assessments become unreliable, qualifying — never displacing — the confidence placed in upstream evidence. The <em>Structural Calibration and Output Layer</em> (Nodes 18–20) governs how revised beliefs propagate downstream to the Dangerous Offender designation posterior at Node 20. The cross-cutting <em>Quantum diagnostic layer</em> (Appendix Q) surfaces epistemic conditions — order effects, contextuality, premature scalar collapse, distorted priors — that classical Bayesian inference is poorly equipped to represent.</p>
+<p>The architecture comprises three substantive layers per Chapter 5 plus one cross-cutting diagnostic layer. The <em>Substantive Risk Layer</em> (Nodes 1–4, with the temporal modifier N2i) represents empirically supported risk indicators subject to Canadian burdens of proof and proportionality constraints. The <em>Systemic Distortion and Doctrinal Fidelity Layer</em> (Nodes 5–19, including the strategic-pleas modifier N7i and sub-nodes 10a–10d) captures mechanisms through which criminal records and risk assessments become unreliable, qualifying — never displacing — the confidence placed in upstream evidence. The <em>Structural Output Layer</em> (Node 20) is the terminal convergence point representing Dangerous Offender designation likelihood given the upstream architecture. The cross-cutting <em>Quantum diagnostic layer</em> (Appendix Q) surfaces epistemic conditions — order effects, contextuality, premature scalar collapse, distorted priors — that classical Bayesian inference is poorly equipped to represent.</p>
 <p>The natural starting point is the <strong>Profile</strong> tab. <strong>Architecture</strong> offers a structural overview without requiring case data. <strong>Inference</strong> displays the live posterior distribution once data has been entered.</p>
 </div>
 </details>""",
@@ -1358,7 +1407,7 @@ with TABS[0]:
             unsafe_allow_html=True,
         )
 
-    # ── Zone 2a: Doctrinal architecture (N1, N17 — structural constraints) ─────
+    # ── Zone 2a: Doctrinal architecture (N1, N17, N19 — structural constraints) ─
     # Surfaced separately from the case-responsive drivers below per Chapter 5's
     # treatment of N1 as a structural control / shared parent node.
     st.markdown(
@@ -1382,10 +1431,13 @@ with TABS[0]:
         _struct_cols = st.columns(len(_struct_drivers))
         for _idx, _d in enumerate(_struct_drivers):
             with _struct_cols[_idx]:
-                # Use a stable amber/blue accent regardless of node type colour
-                _accent = "#BA7517" if _d["nid"] == 1 else "#185FA5"
-                _accent_bg = "#FAEEDA" if _d["nid"] == 1 else "#E8F0FA"
-                _accent_border = "#E5CC95" if _d["nid"] == 1 else "#C7D3E5"
+                # Stable accent palette per structural node identity
+                if _d["nid"] == 1:
+                    _accent = "#BA7517"; _accent_bg = "#FAEEDA"; _accent_border = "#E5CC95"
+                elif _d["nid"] == 17:
+                    _accent = "#185FA5"; _accent_bg = "#E8F0FA"; _accent_border = "#C7D3E5"
+                else:  # N19
+                    _accent = "#5C4F8A"; _accent_bg = "#EFEBF5"; _accent_border = "#C8BFDA"
                 # Surface caption depends on node identity
                 if _d["nid"] == 1:
                     _surface = (
@@ -1396,10 +1448,10 @@ with TABS[0]:
                         "conditioning all other inference, not as a posterior "
                         "over case facts."
                     )
-                    _expand_label = "Formal treatment — Chapter 5 §1"
+                    _expand_label = "Formal treatment — Chapter 5 §5.1.1"
                     _formal = (
-                        "Per Chapter 5, N1 operates as a shared parent node "
-                        "whose states deterministically condition the CPT "
+                        "Per Chapter 5 §5.1.1, N1 operates as a shared parent "
+                        "node whose states deterministically condition the CPT "
                         "entries of downstream aggravation and mitigation "
                         "nodes — collapsing likelihood terms to near-zero when "
                         "evidentiary burdens are unmet. This is the limiting "
@@ -1413,24 +1465,60 @@ with TABS[0]:
                         "percentages; the values shown are best-available "
                         "industry estimates of these doctrinal thresholds."
                     )
-                else:  # N17
+                elif _d["nid"] == 17:
                     _surface = (
-                        "Responds to admitted evidence but assumes the "
-                        "evidentiary admissibility gate (N1) has been correctly "
-                        "applied. Reflects the post-gate inferential structure "
-                        "in which conflicting evidence is properly weighed."
+                        "Models contamination introduced when criminal records "
+                        "more plausibly reflect disproportionate policing "
+                        "intensity than proportionate harmful conduct. Treats "
+                        "record density as a hypothesis requiring justification "
+                        "rather than as neutral evidence."
                     )
-                    _expand_label = "Doctrinal scope of N17"
+                    _expand_label = "Doctrinal scope of N17 — Chapter 5 §5.1.17"
                     _formal = (
-                        "N17 is a properly-weighted-conditional node: its "
-                        "posterior responds to evidence once admitted, but the "
-                        "responsiveness assumes that the weighting prior to "
-                        "admission has been correctly rendered by the "
-                        "sentencing judge. The judge's gatekeeping role under "
-                        "N1 is logically prior to any update at N17. If "
-                        "admissibility has been mishandled — evidence admitted "
-                        "that should not have been, or excluded that should "
-                        "have been — N17 is computing on a corrupted basis."
+                        "Per Chapter 5 §5.1.17, N17 captures contamination "
+                        "from over-policing and epistemic distortion of "
+                        "criminal records. The node operates upstream of "
+                        "Prior Record Reliability, Risk Assessment Calibration, "
+                        "and Dangerous Offender Designation. Where policing "
+                        "disparity is high, surveillance-triggered entries "
+                        "dominate the record, and identity-based exposure "
+                        "patterns align with known enforcement biases, the "
+                        "architecture downweights record-derived evidence to "
+                        "prevent feedback loops where over-policed communities "
+                        "are penalised for being visible. The node does not "
+                        "question conviction validity — it conditions "
+                        "inferential reliability when records are reused as "
+                        "inputs for risk assessment."
+                    )
+                else:  # N19
+                    _surface = (
+                        "Detects and corrects collider bias arising when "
+                        "sentencing inference conditions on system-entry "
+                        "variables (arrest, charge, detention, conviction). "
+                        "These variables are downstream effects of multiple "
+                        "upstream causes, including policing intensity and "
+                        "case complexity. Conditioning on them induces "
+                        "spurious correlations between upstream causes."
+                    )
+                    _expand_label = "Doctrinal scope of N19 — Chapter 5 §5.1.19"
+                    _formal = (
+                        "Per Chapter 5 §5.1.19, N19 surfaces collider bias / "
+                        "Berkson's paradox in criminal justice inference. "
+                        "When risk models condition on system-entry variables "
+                        "without accounting for selection effects, apparent "
+                        "relationships emerge between upstream causes that "
+                        "do not exist independently of conditioning. The "
+                        "architecture flags this distortion: where over-"
+                        "policing contributes to record production (N17), "
+                        "treating the record as additional evidence of "
+                        "propensity activates collider bias. Risk inference "
+                        "must not treat exposure to policing as exposure of "
+                        "risk. The node does not eliminate the distortion — "
+                        "it ensures that defence counsel and reviewing courts "
+                        "are on notice that the record is doing double duty "
+                        "as both evidence of conduct and evidence of "
+                        "surveillance, and that conflating the two is a "
+                        "structural error."
                     )
                 # Card
                 st.markdown(
@@ -1466,7 +1554,7 @@ with TABS[0]:
     # ── Zone 2: Drivers ──────────────────────────────────────────────────────
     st.markdown("### Drivers of the posterior")
     st.caption("Top 5 nodes pushing DO risk up, top 5 pulling it down. "
-               "Case-responsive nodes only — structural constraints (N1, N17) "
+               "Case-responsive nodes only — structural constraints (N1, N17, N19) "
                "shown separately above. Increasing-side: risk and constraint "
                "nodes ranked by posterior. Decreasing-side: mitigations, "
                "systemic distortion corrections, and causal detectors.")
@@ -1760,7 +1848,7 @@ with TABS[2]:
                 "#A32D2D",
                 "Offender characteristics",
                 "Demographic and clinical features mapped to risk and burnout nodes.",
-                "N3 · N4 · N9 · N15"
+                "N2 · N3 · N4"
             ),
             unsafe_allow_html=True,
         )
@@ -1773,7 +1861,7 @@ with TABS[2]:
             sev_word, sev_col, sev_body = "Moderate", "#BA7517", f"partial burnout attenuation ({age} years)."
         else:
             sev_word, sev_col, sev_body = "Minimal", "#707070", f"burnout attenuation — temporal distortion node weighted at default ({age} years)."
-        st.markdown(_sev_caption(sev_word, sev_col, sev_body, "N15"),
+        st.markdown(_sev_caption(sev_word, sev_col, sev_body, "N2"),
                     unsafe_allow_html=True)
 
         identity = st.selectbox(
@@ -1922,7 +2010,7 @@ with TABS[2]:
             key="gr")
         st.markdown(
             "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
-            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N12</div>",
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N10</div>",
             unsafe_allow_html=True,
         )
 
@@ -1944,7 +2032,7 @@ with TABS[2]:
             key="pol")
         st.markdown(
             "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
-            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N14</div>",
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N17</div>",
             unsafe_allow_html=True,
         )
 
@@ -1965,7 +2053,7 @@ with TABS[2]:
                 "#3B6D11",
                 "Rehabilitative context",
                 "Cultural programming availability and engagement — Natomagan §48 frames absence as systemic, not individual.",
-                "N11 · N19"
+                "N11"
             ),
             unsafe_allow_html=True,
         )
@@ -1995,7 +2083,7 @@ with TABS[2]:
             key="rehab")
         st.markdown(
             "<div style='font-family:JetBrains Mono,monospace;font-size:0.7rem;"
-            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N19</div>",
+            "color:#9E9E9E;margin-top:-8px;margin-bottom:14px;text-align:right'>N9</div>",
             unsafe_allow_html=True,
         )
 
@@ -2144,12 +2232,12 @@ with TABS[5]:
     }
     # Aggregate node-tag for each section
     _section_nodes = {
-        "Intergenerational trauma":   "→ N10",
-        "Cultural disconnection":     "→ N11 · N12",
-        "Childhood & family":         "→ N10",
-        "Socioeconomic":              "→ N10 · N18",
-        "Substance & mental health":  "→ N10 · N18",
-        "Systemic justice":           "→ N12 · N14",
+        "Intergenerational trauma":   "→ N9",
+        "Cultural disconnection":     "→ N9",
+        "Childhood & family":         "→ N9",
+        "Socioeconomic":              "→ N9 · N18",
+        "Substance & mental health":  "→ N8 · N9 · N18",
+        "Systemic justice":           "→ N13 · N17",
     }
 
     def _gladue_section_open(stripe_color, title, subtitle, node_tags, count_str, has_checked):
@@ -3133,8 +3221,8 @@ with TABS[11]:
             "margin:0 auto'>"
             "The Bloch sphere visualisation will render once case data is entered. "
             "The polar angle θ derives from Node 20's posterior; the azimuthal angle "
-            "φ encodes the balance between risk-cluster nodes (N2 / N3 / N4 / N18) "
-            "and mitigation-cluster nodes (N5 / N6 / N10 / N12 / N14). Both require "
+            "φ encodes the balance between substantive-risk nodes (N2 / N3 / N4) "
+            "and systemic-distortion nodes (N5 / N6 / N10 / N12 / N14 / N17). Both require "
             "a populated network state to compute meaningfully."
             "</div>"
             "</div>",
@@ -4691,7 +4779,7 @@ RISK FACTOR POSTERIORS:
 - N2 Violent history: {Pa.get(2,0.08)*100:.1f}%
 - N3 PCL-R (psychopathy): {Pa.get(3,0.55)*100:.1f}%
 - N4 Static-99R (sexual offence): {Pa.get(4,0.32)*100:.1f}%
-- N18 Dynamic risk: {Pa.get(18,0.167)*100:.1f}%
+- N4 Dynamic risk: {Pa.get(4,0.167)*100:.1f}%
 
 DISTORTION CORRECTIONS (reduce effective risk weight):
 - N1 Burden of proof: {Pa.get(1,0.83)*100:.1f}%
@@ -4699,12 +4787,12 @@ DISTORTION CORRECTIONS (reduce effective risk weight):
 - N6 Ineffective counsel: {Pa.get(6,0.15)*100:.1f}%
 - N7 Bail-denial cascade: {Pa.get(7,0.40)*100:.1f}%
 - N9 FASD: {Pa.get(9,0.15)*100:.1f}%
-- N10 Intergenerational trauma: {Pa.get(10,0.45)*100:.1f}%
-- N11 No cultural treatment: {Pa.get(11,0.10)*100:.1f}%
-- N12 Gladue misapplication: {Pa.get(12,0.15)*100:.1f}%
-- N14 Over-policing: {Pa.get(14,0.15)*100:.1f}%
-- N15 Temporal distortion: {Pa.get(15,0.40)*100:.1f}%
-- N19 No rehabilitation: {Pa.get(19,0.10)*100:.1f}%
+- N9 Intergenerational trauma: {Pa.get(9,0.45)*100:.1f}%
+- N9 No cultural treatment: {Pa.get(9,0.10)*100:.1f}%
+- N10 Gladue misapplication: {Pa.get(10,0.15)*100:.1f}%
+- N17 Over-policing: {Pa.get(17,0.15)*100:.1f}%
+- N14 Temporal distortion: {Pa.get(14,0.40)*100:.1f}%
+- N9 No rehabilitation: {Pa.get(9,0.10)*100:.1f}%
 
 GLADUE FACTORS ACTIVE ({len(cG)}): {', '.join([f['l'] for f in cG]) if cG else 'None selected'}
 MORRIS/ELLIS SCE ({len(cS)}): {', '.join([f['l'] for f in cS]) if cS else 'None selected'}
@@ -5086,25 +5174,25 @@ with TABS[4]:
     pN7  = st.session_state.posteriors.get(7,  0.15)   # bail-denial cascade
     pN6  = st.session_state.posteriors.get(6,  0.15)   # ineffective counsel
     pN5  = st.session_state.posteriors.get(5,  0.10)   # invalid risk tools / Ewert
-    pN14 = st.session_state.posteriors.get(14, 0.15)   # over-policing
-    pN15 = st.session_state.posteriors.get(15, 0.40)   # temporal distortion / age
-    pN12 = st.session_state.posteriors.get(12, 0.15)   # Gladue misapplication
+    pN17 = st.session_state.posteriors.get(17, 0.15)   # over-policing (CH5 §5.1.17)
+    pN14 = st.session_state.posteriors.get(14, 0.40)   # temporal distortion / age (CH5 §5.1.14)
+    pN10 = st.session_state.posteriors.get(10, 0.15)   # Gladue misapplication (CH5 §5.1.10)
 
     # ── Authoritative correction references (preserved) ───────────────────
     CORR_REFS = {
         "bail":    ("Bail-denial cascade (N7)", "A32D2D", "R v Antic [2017] SCC 27; Tolppanen Report (2018)"),
         "counsel": ("Ineffective counsel (N6)", "185FA5", "R v GDB [2000] 1 SCR 520; Strickland doctrine"),
         "ewert":   ("Ewert tool invalidity (N5)", "185FA5", "Ewert v Canada [2018] SCC 30"),
-        "police":  ("Over-policing / record inflation (N14)", "185FA5", "R v Le [2019] SCC 34"),
-        "time":    ("Temporal attenuation (N15)", "185FA5", "R v Nur [2015] / Lloyd [2016] — age burnout"),
-        "gladue":  ("Gladue misapplication (N12)", "3B6D11", "R v Morris 2021 ONCA 680 para 97; Boutilier [2017] SCC 64"),
+        "police":  ("Over-policing / record inflation (N17)", "185FA5", "R v Le [2019] SCC 34"),
+        "time":    ("Temporal attenuation (N14)", "185FA5", "R v Nur [2015] / Lloyd [2016] — mandatory-minimum-era / age burnout"),
+        "gladue":  ("Gladue misapplication (N10)", "3B6D11", "R v Morris 2021 ONCA 680 para 97; Boutilier [2017] SCC 64"),
     }
 
     # ── Compute global reliability floor from current distortion posteriors ───
     bail_factor    = float(np.clip(1.0 - 0.50*pN7 - 0.20*pN6, 0.30, 1.0))
     ewert_factor   = float(np.clip(1.0 - 0.40*pN5,             0.40, 1.0))
-    police_factor  = float(np.clip(1.0 - 0.35*pN14,            0.50, 1.0))
-    gladue_factor  = float(np.clip(1.0 - 0.30*pN12,            0.55, 1.0))
+    police_factor  = float(np.clip(1.0 - 0.35*pN17,            0.50, 1.0))
+    gladue_factor  = float(np.clip(1.0 - 0.30*pN10,            0.55, 1.0))
 
     # ── Offence seriousness tiers (Boutilier pattern analysis, preserved) ──
     SERIOUSNESS = {
@@ -5177,7 +5265,7 @@ with TABS[4]:
     def _cr_feed_nodes():
         """Derive N2, N18 and distortion node signals from the calibrated criminal record.
         Fixes: N2 signal now written to doc_adj (not cr_doc_adj) so run_inf() picks it up.
-        Enhanced: seriousness-weighted N2, escalation signal into N18, gang context into N14.
+        Enhanced: seriousness-weighted N2, escalation signal into N4 (dynamic risk), gang context into N17 (over-policing).
         """
         rec = st.session_state.criminal_record
         if not rec:
@@ -5220,7 +5308,7 @@ with TABS[4]:
             cr_adj[2] = n2_raw_with_jump - st.session_state.posteriors.get(2, 0.08)
             st.session_state.cr_doc_adj[2] = n2_raw_with_jump
 
-        # ── N18: Dynamic risk — escalation signal ─────────────────────────────
+        # ── N4: Dynamic risk — escalation signal (CH5 §5.1.4) ────────────────
         esc = _detect_escalation(rec)
         st.session_state.cr_doc_adj["escalation"] = esc
         if abs(esc["signal"]) > 0.01:
@@ -5246,18 +5334,18 @@ with TABS[4]:
         vuln_e     = [e for e in rec if e.get("vulnerable_victim", False)]
         drug_e     = [e for e in rec if e.get("drug_trafficking", False)]
         if domestic_e:
-            # Domestic violence → boosts violent history (N2) and dynamic risk (N18)
+            # Domestic violence → boosts violent history (N2) and dynamic risk (N4)
             cr_adj[2]  = cr_adj.get(2, 0)  + float(np.clip(0.05 * len(domestic_e), 0.0, 0.15))
             cr_adj[18] = cr_adj.get(18, 0) + float(np.clip(0.04 * len(domestic_e), 0.0, 0.12))
         if hate_e:
-            # Hate crime → boosts dynamic risk (N18)
+            # Hate crime → boosts dynamic risk (N4)
             cr_adj[18] = cr_adj.get(18, 0) + float(np.clip(0.06 * len(hate_e), 0.0, 0.18))
         if terror_e:
-            # Terrorism → significant boost to N18 and N2
+            # Terrorism → significant boost to N4 (dynamic risk) and N2 (validated risk elevators)
             cr_adj[18] = cr_adj.get(18, 0) + float(np.clip(0.12 * len(terror_e), 0.0, 0.30))
             cr_adj[2]  = cr_adj.get(2, 0)  + float(np.clip(0.10 * len(terror_e), 0.0, 0.25))
         if vuln_e:
-            # Vulnerable victim → boosts dynamic risk (N18)
+            # Vulnerable victim → boosts dynamic risk (N4)
             cr_adj[18] = cr_adj.get(18, 0) + float(np.clip(0.05 * len(vuln_e), 0.0, 0.15))
         if drug_e:
             # Drug trafficking — Parranto [2021] — fentanyl at top of tariff
@@ -5266,7 +5354,7 @@ with TABS[4]:
             cr_adj[18] = cr_adj.get(18, 0) + float(np.clip(
                 0.06 * len(drug_e) + 0.06 * len(fentanyl_e), 0.0, 0.22))
 
-        # ── Distortion aggregates → N7, N14, N12 ─────────────────────────────
+        # ── Distortion aggregates → N7 (bail-WCGP), N17 (over-policing), N10 (Gladue misapp) ─
         bail_agg   = float(np.mean([e["adj"]["bail"]   for e in rec]))
         police_agg = float(np.mean([e["adj"]["police"] for e in rec]))
         gladue_agg = float(np.mean([e["adj"]["gladue"] for e in rec]))
@@ -5749,7 +5837,7 @@ with TABS[4]:
 
 **Doctrinal source.** *R v Antic* [2017] SCC 27 (bail jurisprudence); Tolppanen Report (2018) on bail-denial cascade dynamics; Chapter 5 §5.1.7 (Wrongful Conviction Guilty Plea cascade modelling); Chapter 3 §3.4.5 (inferential inertia) and §3.5.3 (jump principle) for the doctrinal substrate of cascade propagation; Appendix RM §RM.5 for the operational specification.
 
-**Scope of this implementation.** This is the Node 7 distortion only. The full set of cascade distortions (N6 IAC, N14 over-policing, N15 mandatory-minimum-era anchoring, N17 collider bias, N18 dynamic risk integration) extends the same architectural pattern in subsequent implementation work.
+**Scope of this implementation.** Currently operational: N6 (IAC, conditioning per §RM.6) and N7 (bail-WCGP cascade with §RM.5 propagation). The full set of cascade distortions per Chapter 5 — N14 (Temporal Distortion), N15 (Interjurisdictional Tariff), N17 (Over-Policing and Epistemic Contamination), N18 (Gladue/Ewert/Morris/Ellis Profile audit), N19 (Collider Bias) — extends the same architectural pattern in subsequent implementation work.
                 """)
 
             # ── N6 (IAC) aggregate panel — §RM.6 ─────────────────────────────
