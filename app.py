@@ -3030,40 +3030,6 @@ with TABS[0]:
                         "register. N1 is not a probability — it is the "
                         "operationalisation of that posture."
                     )
-                    _expand_label = "Formal treatment — Chapter 5 §5.1.1"
-                    _formal = (
-                        "Per Chapter 5 §5.1.1, N1 operates as a shared parent "
-                        "node whose states deterministically condition the CPT "
-                        "entries of downstream aggravation and mitigation "
-                        "nodes — collapsing likelihood terms to near-zero when "
-                        "evidentiary burdens are unmet. This is the limiting "
-                        "case of Bayesian conditional probability where the "
-                        "conditional collapses to certainty. Deterministic "
-                        "conditioning of this kind is orthodox within Bayesian "
-                        "network methodology. <br><br>"
-                        "Per <em>Gardiner</em>, the burden of proof is "
-                        "<em>not</em> a property of the case — it is a "
-                        "property of each evidentiary input. The Crown bears "
-                        "BARD on every aggravating fact it advances; defence "
-                        "bears BoP on every mitigating fact. Both happen "
-                        "simultaneously in any contested sentencing. PARVIS's "
-                        "audit math handles this asymmetry per-input via "
-                        "differentiated weights (1.0 for aggravating-fail, "
-                        "0.6 for mitigating-fail). N1's display reports the "
-                        "doctrinal posture toward the case file's audit "
-                        "state as a whole: <strong>Default</strong> (audit "
-                        "pressure baseline; system operates on the assumption "
-                        "that thresholds are met), <strong>Pressure</strong> "
-                        "(at least one input marked insufficient by the user), "
-                        "or <strong>Failure</strong> (every audited input "
-                        "marked insufficient — the case file as constituted "
-                        "does not meet doctrinal admissibility). Numerical "
-                        "depth is shown subordinate to the posture label as "
-                        "an indicator of audit pressure, not as a probability "
-                        "claim. Law does not work in percentages; the depth "
-                        "indicator's range is best-available industry "
-                        "operationalisation, not a probability over case facts."
-                    )
                 elif _d["nid"] == 5:
                     _surface = (
                         "Encodes the Ewert validity gate on risk-assessment "
@@ -3074,25 +3040,6 @@ with TABS[0]:
                         "discount on tool-derived evidence, not as a posterior "
                         "over case facts."
                     )
-                    _expand_label = "Doctrinal scope of N5 — Chapter 5 §5.1.5 / Ewert v Canada"
-                    _formal = (
-                        "Per Chapter 5 §5.1.5 and Ewert v Canada [2018] 2 SCR "
-                        "165, N5 encodes the validity gate on risk-assessment "
-                        "tools used in DO proceedings. The Supreme Court held "
-                        "that CSC's continued reliance on actuarial tools "
-                        "without confirming their validity for Indigenous "
-                        "populations breached the statutory duty of "
-                        "accuracy. PARVIS operationalises this by computing "
-                        "a tool_validity multiplier from N5's posterior, "
-                        "which discounts the contribution of N3 (sexual "
-                        "offence risk profile) and N4 (dynamic risk) to "
-                        "Node 20. Where tools are unvalidated for the "
-                        "individual before the court, the architecture "
-                        "reduces tool-derived weight up to ~42%. This is "
-                        "the Ewert principle made operational at the level "
-                        "of inferential structure rather than rhetorical "
-                        "compliance."
-                    )
                 else:  # N19
                     _surface = (
                         "Detects and corrects collider bias arising when "
@@ -3102,26 +3049,6 @@ with TABS[0]:
                         "upstream causes, including policing intensity and "
                         "case complexity. Conditioning on them induces "
                         "spurious correlations between upstream causes."
-                    )
-                    _expand_label = "Doctrinal scope of N19 — Chapter 5 §5.1.19"
-                    _formal = (
-                        "Per Chapter 5 §5.1.19, N19 surfaces collider bias / "
-                        "Berkson's paradox in criminal justice inference. "
-                        "When risk models condition on system-entry variables "
-                        "without accounting for selection effects, apparent "
-                        "relationships emerge between upstream causes that "
-                        "do not exist independently of conditioning. The "
-                        "architecture flags this distortion: where over-"
-                        "policing contributes to record production (N17), "
-                        "treating the record as additional evidence of "
-                        "propensity activates collider bias. Risk inference "
-                        "must not treat exposure to policing as exposure of "
-                        "risk. The node does not eliminate the distortion — "
-                        "it ensures that defence counsel and reviewing courts "
-                        "are on notice that the record is doing double duty "
-                        "as both evidence of conduct and evidence of "
-                        "surveillance, and that conflating the two is a "
-                        "structural error."
                     )
                 # Card — N1 uses doctrinal-state framing (Option II per JP M8/P3
                 # lock-in: posture label dominant, depth indicator subordinate).
@@ -3193,12 +3120,13 @@ with TABS[0]:
                         f"</div>",
                         unsafe_allow_html=True,
                     )
-                with st.expander(_expand_label, expanded=False):
-                    st.markdown(
-                        f"<div style='font-family:Fraunces,serif;font-size:0.86rem;"
-                        f"color:#3a3a3a;line-height:1.65;padding:4px 0'>{_formal}</div>",
-                        unsafe_allow_html=True,
-                    )
+                # Mark 8 Phase 4 — formal-treatment expander relocated to
+                # Architecture tab "Doctrinal foundations" section below
+                # the DAG. Per JP M8/P4 lock-in: Summary tab serves as
+                # situational-awareness landing page (live posture +
+                # surface scope), Architecture tab carries the deep
+                # architectural treatment of why N1/N5/N19 are
+                # categorically structural.
 
     st.markdown(
         "<div style='border-top:1px solid #EFEDE7;margin:24px 0 18px 0'></div>",
@@ -3903,6 +3831,96 @@ with TABS[1]:
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+            elif sel == 5:
+                # Mark 8 Phase 4 — N5 inspect panel surfaces the Ewert
+                # validity gate as architectural commitment, not just a
+                # numeric posterior. Per JP M8/P4 lock-in: all three
+                # structural meta-constraint nodes (N1, N5, N19) get
+                # architectural treatment in the inspect panel; remaining
+                # 17 nodes use the generic else-branch presentation.
+                _n5_accent  = "#185FA5"
+                _n5_bg      = "#E8F0FA"
+                _n5_border  = "#C7D3E5"
+                st.markdown(
+                    f"<div style='background:{_n5_bg};border:1px solid {_n5_border};"
+                    f"border-left:3px solid {_n5_accent};border-radius:12px;padding:1rem'>"
+                    f"<div style='font-size:.68rem;color:{_n5_accent};font-weight:700'>"
+                    f"{TL[m['type']]}</div>"
+                    f"<div style='font-size:1rem;font-weight:700;margin-top:4px'>"
+                    f"N{sel}: {m['name']}</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:.62rem;"
+                    f"color:{_n5_accent};text-transform:uppercase;letter-spacing:.08em;"
+                    f"font-weight:700;margin:12px 0 2px 0'>Architectural function</div>"
+                    f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.15rem;"
+                    f"font-weight:500;color:{_n5_accent};line-height:1.2'>"
+                    f"Tool-validity gate</div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:.78rem;color:#5A5A5A;margin-top:8px;line-height:1.5'>"
+                    f"Per <em>Ewert v Canada</em> [2018] 2 SCR 165, conditions "
+                    f"how risk-tool outputs (PCL-R, Static-99R) carry weight "
+                    f"when applied to populations on which the tools were "
+                    f"not validated.</div>"
+                    f"<div style='display:flex;align-items:baseline;gap:8px;margin-top:10px;"
+                    f"padding-top:8px;border-top:1px dashed {_n5_border}'>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:.6rem;"
+                    f"color:#9E9E9E;text-transform:uppercase;letter-spacing:.06em'>"
+                    f"Posterior P(N5=High)</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:.86rem;"
+                    f"font-weight:600;color:{_n5_accent}'>{p*100:.1f}%</div>"
+                    f"</div>"
+                    f"<div style='height:4px;background:#eee;border-radius:2px;margin-top:6px'>"
+                    f"<div style='width:{p*100:.0f}%;height:100%;background:{_n5_accent};"
+                    f"border-radius:2px'></div></div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:.7rem;color:#9E9E9E;margin-top:6px;line-height:1.4'>"
+                    f"Higher P(High) ⇒ stronger structural discount on tool-derived "
+                    f"evidence (N3, N4) at the Layer III aggregation.</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            elif sel == 19:
+                # Mark 8 Phase 4 — N19 inspect panel surfaces collider-bias
+                # detection as architectural commitment per JP M8/P4 lock-in.
+                _n19_accent  = "#5C4F8A"
+                _n19_bg      = "#EFEBF5"
+                _n19_border  = "#C8BFDA"
+                st.markdown(
+                    f"<div style='background:{_n19_bg};border:1px solid {_n19_border};"
+                    f"border-left:3px solid {_n19_accent};border-radius:12px;padding:1rem'>"
+                    f"<div style='font-size:.68rem;color:{_n19_accent};font-weight:700'>"
+                    f"{TL[m['type']]}</div>"
+                    f"<div style='font-size:1rem;font-weight:700;margin-top:4px'>"
+                    f"N{sel}: {m['name']}</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:.62rem;"
+                    f"color:{_n19_accent};text-transform:uppercase;letter-spacing:.08em;"
+                    f"font-weight:700;margin:12px 0 2px 0'>Architectural function</div>"
+                    f"<div style='font-family:Fraunces,Georgia,serif;font-size:1.15rem;"
+                    f"font-weight:500;color:{_n19_accent};line-height:1.2'>"
+                    f"Inference-structure correction</div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:.78rem;color:#5A5A5A;margin-top:8px;line-height:1.5'>"
+                    f"Detects collider bias arising when sentencing inference "
+                    f"conditions on system-entry variables (arrest, charge, "
+                    f"detention, conviction) — downstream effects of multiple "
+                    f"upstream causes including policing intensity.</div>"
+                    f"<div style='display:flex;align-items:baseline;gap:8px;margin-top:10px;"
+                    f"padding-top:8px;border-top:1px dashed {_n19_border}'>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:.6rem;"
+                    f"color:#9E9E9E;text-transform:uppercase;letter-spacing:.06em'>"
+                    f"Posterior P(N19=High)</div>"
+                    f"<div style='font-family:JetBrains Mono,monospace;font-size:.86rem;"
+                    f"font-weight:600;color:{_n19_accent}'>{p*100:.1f}%</div>"
+                    f"</div>"
+                    f"<div style='height:4px;background:#eee;border-radius:2px;margin-top:6px'>"
+                    f"<div style='width:{p*100:.0f}%;height:100%;background:{_n19_accent};"
+                    f"border-radius:2px'></div></div>"
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:.7rem;color:#9E9E9E;margin-top:6px;line-height:1.4'>"
+                    f"Higher P(High) ⇒ stronger structural caution that the "
+                    f"record reflects surveillance exposure as much as conduct.</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
             else:
                 st.markdown(f"""<div style="background:{col}18;border:1px solid {col}55;border-radius:12px;padding:1rem">
                 <div style="font-size:.68rem;color:{col};font-weight:700">{TL[m['type']]}</div>
@@ -3939,6 +3957,196 @@ with TABS[1]:
                 )
             else:
                 st.markdown(dobar(dp),unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Mark 8 Phase 4 — Doctrinal foundations section
+    # ════════════════════════════════════════════════════════════════════════
+    # Per JP M8/P4 lock-in: this section sits BELOW the DAG (not above)
+    # because the DAG is the visual anchor — users see the network's
+    # structure first, then read the foundations text as commentary on
+    # what they just saw. Reading order: structure → explanation.
+    #
+    # Function: explain why N1, N5, N19 are categorically structural
+    # meta-constraints distinct from the other 17 nodes. Each represents
+    # a different kind of architectural commitment about how the
+    # inference is conducted: N1 is procedural admissibility (Gardiner
+    # asymmetry), N5 is tool validity (Ewert principle), N19 is
+    # inference-structure correction (collider bias / Berkson's paradox).
+    #
+    # Content sourced from former Summary-tab "Formal treatment"
+    # expanders (relocated per JP M8/P4: Summary tab serves as
+    # situational-awareness landing page; Architecture tab carries the
+    # deep architectural treatment).
+
+    st.markdown(
+        "<div style='border-top:1px solid #E0DDD6;margin:36px 0 24px 0'></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<h2 style='font-family:Fraunces,Georgia,serif;font-size:1.55rem;"
+        "font-weight:500;letter-spacing:-0.005em;margin:0 0 6px 0'>"
+        "Doctrinal foundations</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:Fraunces,serif;font-style:italic;"
+        "font-size:0.92rem;color:#707070;margin-bottom:22px;line-height:1.6;"
+        "max-width:780px'>"
+        "Three nodes in this network — N1, N5, and N19 — are structural "
+        "meta-constraints rather than evidentiary nodes. Each represents "
+        "a distinct kind of architectural commitment about how PARVIS "
+        "conducts its inference, not a posterior over case facts. The "
+        "sections below explain the doctrinal foundations of each."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Three foundation cards, side-by-side
+    _df_cols = st.columns(3)
+
+    # ── N1 — Procedural admissibility (Gardiner asymmetry) ───────────────
+    with _df_cols[0]:
+        _n1_accent_df = "#BA7517"
+        _n1_bg_df = "#FAEEDA"
+        _n1_border_df = "#E5CC95"
+        st.markdown(
+            f"<div style='background:{_n1_bg_df};border:1px solid {_n1_border_df};"
+            f"border-left:3px solid {_n1_accent_df};border-radius:10px;"
+            f"padding:18px 22px;margin-bottom:12px;min-height:340px'>"
+            f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:10px'>"
+            f"<div style='font-family:JetBrains Mono,monospace;font-size:0.78rem;"
+            f"font-weight:600;padding:3px 9px;border-radius:5px;color:white;"
+            f"background:{_n1_accent_df}'>N1</div>"
+            f"<div style='font-family:Fraunces,Georgia,serif;font-size:1rem;"
+            f"font-weight:500;color:#1a1a1a'>Procedural admissibility</div>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.85rem;color:#3a3a3a;line-height:1.6'>"
+            f"<p style='margin:0 0 12px 0'>"
+            f"Per Chapter 5 §5.1.1, N1 operates as a shared parent node "
+            f"whose states deterministically condition the CPT entries of "
+            f"downstream aggravation and mitigation nodes — collapsing "
+            f"likelihood terms to near-zero when evidentiary burdens are "
+            f"unmet. This is the limiting case of Bayesian conditional "
+            f"probability where the conditional collapses to certainty. "
+            f"Deterministic conditioning of this kind is orthodox within "
+            f"Bayesian network methodology."
+            f"</p>"
+            f"<p style='margin:0 0 12px 0'>"
+            f"Per <em>R. v. Gardiner</em> [1982] 2 SCR 368, the burden of "
+            f"proof is <em>not</em> a property of the case — it is a "
+            f"property of each evidentiary input. The Crown bears BARD on "
+            f"every aggravating fact it advances; defence bears BoP on "
+            f"every mitigating fact. Both happen simultaneously in any "
+            f"contested sentencing. PARVIS's audit math handles this "
+            f"asymmetry per-input via differentiated weights (1.0 for "
+            f"aggravating-fail, 0.6 for mitigating-fail)."
+            f"</p>"
+            f"<p style='margin:0'>"
+            f"N1's display reports the doctrinal posture toward the case "
+            f"file's audit state as a whole: <strong>Default</strong> "
+            f"(audit pressure baseline; thresholds assumed met), "
+            f"<strong>Pressure</strong> (at least one input marked "
+            f"insufficient), or <strong>Failure</strong> (every audited "
+            f"input marked insufficient). Numerical depth is shown "
+            f"subordinate to the posture label as an indicator of audit "
+            f"pressure, not as a probability claim."
+            f"</p>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── N5 — Tool validity (Ewert principle) ─────────────────────────────
+    with _df_cols[1]:
+        _n5_accent_df = "#185FA5"
+        _n5_bg_df = "#E8F0FA"
+        _n5_border_df = "#C7D3E5"
+        st.markdown(
+            f"<div style='background:{_n5_bg_df};border:1px solid {_n5_border_df};"
+            f"border-left:3px solid {_n5_accent_df};border-radius:10px;"
+            f"padding:18px 22px;margin-bottom:12px;min-height:340px'>"
+            f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:10px'>"
+            f"<div style='font-family:JetBrains Mono,monospace;font-size:0.78rem;"
+            f"font-weight:600;padding:3px 9px;border-radius:5px;color:white;"
+            f"background:{_n5_accent_df}'>N5</div>"
+            f"<div style='font-family:Fraunces,Georgia,serif;font-size:1rem;"
+            f"font-weight:500;color:#1a1a1a'>Tool validity</div>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.85rem;color:#3a3a3a;line-height:1.6'>"
+            f"<p style='margin:0 0 12px 0'>"
+            f"Per Chapter 5 §5.1.5 and <em>Ewert v Canada</em> [2018] 2 "
+            f"SCR 165, N5 encodes the validity gate on risk-assessment "
+            f"tools used in Dangerous Offender proceedings. The Supreme "
+            f"Court held that CSC's continued reliance on actuarial tools "
+            f"without confirming their validity for Indigenous populations "
+            f"breached the statutory duty of accuracy."
+            f"</p>"
+            f"<p style='margin:0 0 12px 0'>"
+            f"PARVIS operationalises this by computing a tool-validity "
+            f"multiplier from N5's posterior, which discounts the "
+            f"contribution of N3 (sexual offence risk profile) and N4 "
+            f"(dynamic risk) to N20. Where tools are unvalidated for the "
+            f"individual before the court, the architecture reduces "
+            f"tool-derived weight up to ~42%."
+            f"</p>"
+            f"<p style='margin:0'>"
+            f"This is the <em>Ewert</em> principle made operational at "
+            f"the level of inferential structure rather than rhetorical "
+            f"compliance — the gate fires whether or not the parties "
+            f"raise <em>Ewert</em> in argument."
+            f"</p>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── N19 — Inference correction (collider bias / Berkson's paradox) ───
+    with _df_cols[2]:
+        _n19_accent_df = "#5C4F8A"
+        _n19_bg_df = "#EFEBF5"
+        _n19_border_df = "#C8BFDA"
+        st.markdown(
+            f"<div style='background:{_n19_bg_df};border:1px solid {_n19_border_df};"
+            f"border-left:3px solid {_n19_accent_df};border-radius:10px;"
+            f"padding:18px 22px;margin-bottom:12px;min-height:340px'>"
+            f"<div style='display:flex;align-items:center;gap:10px;margin-bottom:10px'>"
+            f"<div style='font-family:JetBrains Mono,monospace;font-size:0.78rem;"
+            f"font-weight:600;padding:3px 9px;border-radius:5px;color:white;"
+            f"background:{_n19_accent_df}'>N19</div>"
+            f"<div style='font-family:Fraunces,Georgia,serif;font-size:1rem;"
+            f"font-weight:500;color:#1a1a1a'>Inference correction</div>"
+            f"</div>"
+            f"<div style='font-family:Fraunces,serif;font-style:italic;"
+            f"font-size:0.85rem;color:#3a3a3a;line-height:1.6'>"
+            f"<p style='margin:0 0 12px 0'>"
+            f"Per Chapter 5 §5.1.19, N19 surfaces collider bias "
+            f"(Berkson's paradox) in criminal-justice inference. When "
+            f"risk models condition on system-entry variables (arrest, "
+            f"charge, detention, conviction) without accounting for "
+            f"selection effects, apparent relationships emerge between "
+            f"upstream causes that do not exist independently of "
+            f"conditioning."
+            f"</p>"
+            f"<p style='margin:0 0 12px 0'>"
+            f"The architecture flags this distortion: where over-policing "
+            f"contributes to record production (N17), treating the "
+            f"record as additional evidence of propensity activates "
+            f"collider bias. Risk inference must not treat exposure to "
+            f"policing as exposure of risk."
+            f"</p>"
+            f"<p style='margin:0'>"
+            f"The node does not eliminate the distortion — it ensures "
+            f"that defence counsel and reviewing courts are on notice "
+            f"that the record is doing double duty as both evidence of "
+            f"conduct and evidence of surveillance, and that conflating "
+            f"the two is a structural error."
+            f"</p>"
+            f"</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── T2: Case profile ──────────────────────────────────────────────────────────
 with TABS[2]:
