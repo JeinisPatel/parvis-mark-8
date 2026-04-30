@@ -1795,6 +1795,7 @@ def _audit_status_for_conviction(aid: str) -> tuple:
 
 
 
+def _n19_collider_signal(posteriors: dict) -> dict:
     """
     §5.1.19 N19 — App-side collider-bias signal.
 
