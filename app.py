@@ -2617,12 +2617,31 @@ NP={1:(.50,.92),2:(.12,.73),3:(.50,.73),4:(.88,.73),
 
 def draw_dag(post,sel=None):
     fig,ax=plt.subplots(figsize=(13,9),facecolor='#fafafa')
-    ax.set_xlim(-.02,1.02);ax.set_ylim(-.08,1.02);ax.axis('off');ax.set_facecolor('#fafafa')
-    for y,h,lbl,lx in [(.83,.10,"Layer I — Substantive risk",.52),
-                        (.29,.53,"Layer II — Systemic distortion & doctrinal fidelity",.52),
-                        (-.04,.09,"Layer III — Structural output",.52)]:
+    # Mark 8 Phase 3 (Alternative A): xlim extended left to -.06 to give
+    # margin space for vertical layer labels. Headers now run vertically
+    # at the left edge of each layer rectangle rather than horizontally
+    # at the top, eliminating all node-collision risk. Pattern is a
+    # standard scientific-diagram convention (axis-style annotations).
+    ax.set_xlim(-.06,1.02);ax.set_ylim(-.08,1.02);ax.axis('off');ax.set_facecolor('#fafafa')
+    # Layer rectangles + vertical margin labels.
+    # Each label is a single rotated text block ("LAYER N\nSubtitle"),
+    # centered vertically on its rectangle at x=-.025. The earlier
+    # horizontal-header treatment created persistent overlap problems
+    # with N1's label cluster (Layer II header crossing N1's "83%"
+    # percentage label) and the N3 ellipse (long Layer II subtitle
+    # sprawling across the diagram). Vertical placement at margin
+    # solves both.
+    for y, h, title, subtitle in [
+        (.83, .10, "LAYER I",   "Substantive risk"),
+        (.29, .53, "LAYER II",  "Systemic distortion & doctrinal fidelity"),
+        (-.04, .09, "LAYER III", "Structural output"),
+    ]:
         ax.add_patch(plt.Rectangle((0,y),1.0,h,color='#f0f0f0',alpha=.55,zorder=0))
-        ax.text(lx,y+h-.015,lbl,fontsize=8,color='#bbb',fontweight='bold',va='top',ha='center',zorder=1)
+        cy = y + h/2  # vertical center of layer rectangle
+        ax.text(-.025, cy, f"{title}\n{subtitle}",
+                fontsize=7, color='#aaa', fontweight='bold',
+                va='center', ha='center', zorder=1, alpha=.9,
+                rotation=90, rotation_mode='anchor', linespacing=1.4)
     for f,t in EDGES:
         if f not in NP or t not in NP: continue
         x1,y1=NP[f];x2,y2=NP[t];hi=sel and (f==sel or t==sel)
@@ -2638,6 +2657,18 @@ def draw_dag(post,sel=None):
         "15a":.025, "15b":.025, "15c":.025, "15d":.025,
         # §5.1.18 sub-nodes — same smaller radius
         "18a":.025, "18b":.025, "18c":.025, "18d":.025}
+    # Mark 8 Phase 3 — B-prime per JP M8/P3 lock-in: N1's percentage label
+    # is rendered in a doctrinal-state colour (green Default / amber
+    # Pressure / red Failure) rather than the type-base brown. The number
+    # itself is preserved to maintain DAG topology-view consistency; the
+    # colour communicates the doctrinal posture without changing the
+    # diagram's grammar (every node still shows a percentage).
+    _n1_state_dag = _n1_doctrinal_state()
+    _n1_state_color_dag = {
+        "default":  "#3B6D11",  # green
+        "pressure": "#BA7517",  # amber
+        "failure":  "#A32D2D",  # red
+    }.get(_n1_state_dag, "#3B6D11")
     for nid,(x,y) in NP.items():
         m=NODE_META[nid];col=TC[m["type"]];p=post.get(nid,.5);iS=sel==nid
         r=NR.get(nid,.040)
@@ -2651,14 +2682,26 @@ def draw_dag(post,sel=None):
             _fs = 8 if nid < 10 else 7
         ax.text(x,y,str(nid),ha='center',va='center',fontsize=_fs,
                 fontweight='bold',color='white' if iS else col,zorder=5)
-        lbl=m["short"][:14]+("…" if len(m["short"])>14 else "")
+        # Mark 8 Phase 3 — Approach 1 readability fix: N1's "Burden of
+        # proof" label is exactly 15 chars and was being truncated to
+        # "Burden of proo" by the global 14-char cap. Per JP M8/P3
+        # lock-in, drop the truncation for N1 specifically (most-read
+        # label in the diagram, doctrinal centrality). Other 19 nodes
+        # retain the existing 14-char truncation pending a Mark 9
+        # readability pass on the diagram as a whole.
+        if nid == 1:
+            lbl = m["short"]  # render in full — "Burden of proof"
+        else:
+            lbl = m["short"][:14] + ("…" if len(m["short"]) > 14 else "")
         # Sub-nodes use tighter label spacing and slightly smaller text
         if isinstance(nid, str):
             ax.text(x,y-r-.018,lbl,ha='center',va='top',fontsize=5.5,color='#555',zorder=5)
             ax.text(x,y-r-.034,f'{p*100:.0f}%',ha='center',va='top',fontsize=5,color=col,fontweight='bold',zorder=5,alpha=.8)
         else:
             ax.text(x,y-r-.025,lbl,ha='center',va='top',fontsize=6.5,color='#555',zorder=5)
-            ax.text(x,y-r-.050,f'{p*100:.0f}%',ha='center',va='top',fontsize=6,color=col,fontweight='bold',zorder=5,alpha=.8)
+            # B-prime: N1's percentage uses doctrinal-state colour
+            _pct_color = _n1_state_color_dag if nid == 1 else col
+            ax.text(x,y-r-.050,f'{p*100:.0f}%',ha='center',va='top',fontsize=6,color=_pct_color,fontweight='bold',zorder=5,alpha=.8)
     handles=[plt.Line2D([0],[0],marker='o',color='w',markerfacecolor=c,markeredgecolor=c,
              markersize=8,label=TL[t]) for t,c in TC.items()]
     ax.legend(handles=handles,loc='upper right',fontsize=7.5,framealpha=.92,edgecolor='#ddd')
