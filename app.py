@@ -56,7 +56,7 @@ import base64, os
 from datetime import datetime
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-from model import build_model, get_inference_engine, query_do_risk, NODE_META, EDGES_VE as EDGES
+from model import build_model, get_inference_engine, query_do_risk, NODE_META, EDGES_VE as EDGES, compute_n1_prior_from_audit
 from quantum_diagnostics import diagnose, format_report
 from bloch_sphere import draw_bloch_sphere, draw_comparison_chart
 
@@ -840,6 +840,27 @@ def _init():
             # §5.1.19 N19 collider-bias secondary computation slots (Q4=C)
             "n19_collider_signal":None,        # set by run_inf via _n19_collider_signal
             "n19_discounted_risk":None,        # set by run_inf via compute_do_risk(collider_discount=True)
+            # ── §5.1.1 N1 burden-of-proof audit (Mark 8) ──────────────────
+            # Per-input audit-state dict keyed by stable input ID.
+            # Each record carries: provenance ("crown"/"defence"/"agreed"/
+            # "judicial"), use ("aggravating"/"mitigating"/"contextual"/
+            # "agreed_fact"), judicial_finding_type (Ferguson sub-flag,
+            # only populated when provenance=="judicial"), applicable_burden
+            # ("BARD"/"BoP"/"none"), attestation (free text from user),
+            # attestation_status ("satisfied"/"insufficient"/"pending"),
+            # citations (list of authority strings), tab (origin tab),
+            # label (display description for §RM.1 register).
+            # Audit logic: model.compute_n1_prior_from_audit(audit_state)
+            # → target P(N1=High); fed to query_do_risk via virtual evidence
+            # so audit-derived N1 propagates structurally through VE.
+            # See model.py § "N1 burden-of-proof audit" for full doctrinal
+            # architecture (Gardiner, Ferguson, Angelillo, s.724(3)).
+            "n1_audit": {},
+            # Per-case strict-mode flag (Q3=A locked). Strict mode fires
+            # the burden-of-proof audit prompt at moment-of-entry rather
+            # than at tab-exit. Stored as case metadata so it round-trips
+            # on save/load (preserves audit semantics across user handoffs).
+            "strict_mode": False,
             "sce_checked":set(),"sce_values":{},"manual_ev":{},"doc_adj":{},"posteriors":{},
             "qdiags":{},"conn":"moderate","enex":"relevant","scefw":"morris","doc_res":[],"qbism_plain":"","qbism_dm":{},
             "case_id":"","case_jur":""}
@@ -1606,7 +1627,174 @@ def _compute_n18_evidence() -> dict:
 _N19_JOINT_THRESHOLD = 0.60
 
 
-def _n19_collider_signal(posteriors: dict) -> dict:
+# ── §5.1.1 N1 burden-of-proof audit helpers (Mark 8) ─────────────────────────
+# See model.py § "N1 burden-of-proof audit" for full doctrinal architecture.
+# These app-side helpers manage audit-record lifecycle, derive per-conviction
+# audit IDs, and support the §RM.1 register on the Report tab.
+
+# Citation registry — surfaced in prompts and the §RM.1 register.
+N1_CITATIONS = {
+    "gardiner":  "R. v. Gardiner, [1982] 2 SCR 368",
+    "s724":      "Criminal Code, RSC 1985, c. C-46, s. 724(3)",
+    "ferguson":  "R. v. Ferguson, 2008 SCC 6",
+    "angelillo": "R. v. Angelillo, 2006 SCC 55",
+    "lacasse":   "R. v. Lacasse, 2015 SCC 64 (contextual; sentencing-stage proof)",
+}
+
+# Common attestation-basis options for the dropdown shortcuts.
+ATTESTATION_BASES = [
+    "— Select basis —",
+    "Admitted by accused",
+    "Proven at trial",
+    "Agreed in PSR",
+    "Judicial finding (Ferguson — necessarily implied by verdict)",
+    "Judicial finding (sentencing judge's own finding on trial record)",
+    "Uncontested in plea agreement",
+    "Other (specify in attestation text)",
+]
+
+
+def _conviction_audit_id(idx: int, year, offence: str) -> str:
+    """
+    Stable input ID for a conviction in the criminal_record list.
+    Format: "record_{idx}_{year}" — index disambiguates same-year entries.
+    Year-only suffix is robust to the chronological resort that happens on
+    every entry-add (the index repositions but the conviction's audit
+    record can be re-keyed via _sync_conviction_audit_ids if needed).
+    """
+    return f"record_{idx}_{year}"
+
+
+def _sync_conviction_audit_ids():
+    """
+    Reconcile session_state.n1_audit with current criminal_record.
+
+    Called after any add/remove/sort operation on criminal_record. Removes
+    audit records whose corresponding conviction no longer exists (orphan
+    cleanup) and re-keys surviving records to match the new indices after
+    chronological resort.
+
+    Each conviction stores its audit-id key under entry["audit_id"] so we
+    can track records across re-sorts. New convictions are assigned an
+    audit_id at creation if missing.
+    """
+    rec = st.session_state.get("criminal_record", []) or []
+    audit = st.session_state.get("n1_audit", {})
+
+    # Stage 1: ensure every conviction has an audit_id
+    for idx, entry in enumerate(rec):
+        if "audit_id" not in entry:
+            entry["audit_id"] = _conviction_audit_id(
+                idx, entry.get("year", 0), entry.get("offence", "")
+            )
+
+    # Stage 2: remove orphaned records (audit records with no matching
+    # conviction). Non-record audits (e.g. from other tabs) preserved.
+    live_ids = {e.get("audit_id") for e in rec if "audit_id" in e}
+    for key in list(audit.keys()):
+        if key.startswith("record_") and key not in live_ids:
+            audit.pop(key, None)
+
+    st.session_state.n1_audit = audit
+
+
+def _audit_record_for_conviction(entry: dict, idx: int) -> dict:
+    """
+    Build or retrieve the audit record for a conviction.
+
+    For prior convictions at present sentencing, the doctrinally relevant
+    audit is Crown-reliance per Angelillo: is the Crown relying on this
+    prior as aggravating context, and if so, has BARD been met for the
+    aggravating use? Mere existence of the conviction is res judicata —
+    not subject to fresh burden audit at present sentencing (subject to
+    the prior-evidence audit carve-out under R. v. Bird 2019 SCC 7,
+    which is a Mark 9 build item per JP scoping).
+
+    Default record (when conviction is first audited): provenance="judicial",
+    use="contextual" (i.e. Crown is NOT yet relying on it as aggravating).
+    The user toggles "Crown relies as aggravating" to flip use→aggravating
+    and trigger the BARD audit.
+    """
+    audit = st.session_state.setdefault("n1_audit", {})
+    aid = entry.get("audit_id")
+    if not aid:
+        aid = _conviction_audit_id(idx, entry.get("year", 0),
+                                   entry.get("offence", ""))
+        entry["audit_id"] = aid
+
+    if aid not in audit:
+        # Default: prior conviction not yet relied on as aggravating.
+        # use="contextual" means no audit triggered; user toggles to
+        # change to "aggravating" which triggers the BARD audit.
+        audit[aid] = {
+            "tab": "criminal_record",
+            "label": (f"{entry.get('year', '?')} — "
+                      f"{(entry.get('offence', '') or 'Unknown offence')[:60]}"),
+            "provenance": "judicial",
+            "use": "contextual",
+            "judicial_finding_type": None,
+            "applicable_burden": "none",
+            "attestation": "",
+            "attestation_status": "pending",
+            "citations": [N1_CITATIONS["angelillo"], N1_CITATIONS["gardiner"]],
+            # Prior-evidence audit placeholder — Mark 9 build item.
+            # Per JP lock-in: visible-but-inert. Render as "[awaiting
+            # implementation]" in the UI; does not affect N1 derivation.
+            "prior_evidence_audit_status": "not_yet_conducted",
+        }
+    return audit[aid]
+
+
+def _set_conviction_audit_use(aid: str, crown_relies_aggravating: bool):
+    """
+    Toggle a conviction's audit use between "contextual" (Crown not relying
+    as aggravating; no audit triggered) and "aggravating" (Crown relying as
+    aggravating; BARD audit triggered per Angelillo).
+
+    Provenance flips correspondingly: when Crown is relying, provenance
+    becomes "crown" (the Crown is now actively tendering this fact for
+    aggravating use). When not relying, provenance reverts to "judicial"
+    (the prior conviction is just historical record, not contested).
+    """
+    audit = st.session_state.get("n1_audit", {})
+    if aid not in audit:
+        return
+    if crown_relies_aggravating:
+        audit[aid]["provenance"] = "crown"
+        audit[aid]["use"] = "aggravating"
+        audit[aid]["applicable_burden"] = "BARD"
+    else:
+        audit[aid]["provenance"] = "judicial"
+        audit[aid]["use"] = "contextual"
+        audit[aid]["applicable_burden"] = "none"
+        # Clear pending attestation status when reverting — fresh audit
+        # if Crown re-asserts reliance later.
+        if audit[aid].get("attestation_status") == "pending":
+            audit[aid]["attestation"] = ""
+    st.session_state.n1_audit = audit
+
+
+def _audit_status_for_conviction(aid: str) -> tuple:
+    """
+    Return (icon, label, color) for a conviction's audit status indicator.
+    Used by the Criminal Record tab to render per-conviction audit chips.
+    """
+    audit = st.session_state.get("n1_audit", {})
+    rec = audit.get(aid)
+    if not rec:
+        return ("·", "Not audited", "#9E9E9E")
+    use = rec.get("use", "contextual")
+    if use in ("contextual", "agreed_fact"):
+        return ("·", "No audit required", "#9E9E9E")
+    status = rec.get("attestation_status", "pending")
+    if status == "satisfied":
+        return ("✓", "Burden attested", "#3B6D11")
+    if status == "insufficient":
+        return ("✗", "Burden insufficient", "#A32D2D")
+    return ("⚠", "Attestation pending", "#BA7517")
+
+
+
     """
     §5.1.19 N19 — App-side collider-bias signal.
 
@@ -1690,7 +1878,25 @@ def run_inf():
         if sub_nid not in hard_ev:
             hard_ev[sub_nid] = state
 
-    post=query_do_risk(st.session_state.engine, hard_ev)
+    # ── §5.1.1 N1 burden-of-proof audit target (Mark 8) ───────────────────
+    # Compute audit-derived target P(N1=High) from session_state.n1_audit
+    # and pass to query_do_risk. The audit-derived value propagates
+    # structurally through VE to N1's children (N2, N3, N4, N6, N8) — not
+    # just displayed cosmetically. Returns None when audit-state is empty
+    # or contains no inputs requiring a burden audit, in which case N1
+    # falls back to its static prior [[0.17],[0.83]].
+    # See model.py § "N1 burden-of-proof audit" for doctrinal architecture.
+    n1_audit_target = compute_n1_prior_from_audit(
+        st.session_state.get("n1_audit", {})
+    )
+    # Only pass target when it differs meaningfully from the default prior
+    # (avoid unnecessary virtual-evidence overhead when audit is inactive).
+    from model import _N1_DEFAULT_POSTERIOR as _N1_DEF
+    if abs(n1_audit_target - _N1_DEF) < 0.001:
+        n1_audit_target = None
+
+    post=query_do_risk(st.session_state.engine, hard_ev,
+                       n1_audit_target=n1_audit_target)
 
     # ── §5.1.19 N19 collider-bias secondary computation (Q4=C) ─────────────
     # Per §5.1.19 §1, the headline DO posterior in post[20] is unchanged.
@@ -1750,9 +1956,12 @@ def _sync_profile_from_widgets():
     # header DO chip to show ~31.5% before snapping to ~24.9% on widget population.
     viol   = ss.get("viol", "None")
     fasd   = ss.get("fasd", "None / not assessed")
-    sub    = ss.get("sub", "None / in remission")
-    peers  = ss.get("peers", "None identified")
-    stab   = ss.get("stab", "Stable")
+    # NOTE: sub/peers/stab widgets retained on Profile tab UI but no longer
+    # read here — their stale-taxonomy mapping to pev[18] (BUG 1, Mark 8)
+    # was clobbering the BN-computed N18 (SCE Profile audit) posterior.
+    # Awaiting doctrinal-mapping review per CH5 canonical taxonomy before
+    # rewiring these inputs (likely candidates: folded into N9/IGT or N18
+    # sub-node signals; see handoff brief Mark 8 § BUG 1).
     det    = ss.get("det", 60)
     counsel= ss.get("counsel", "Adequate")
     gr     = ss.get("gr", "Yes — full report before court")
@@ -1782,13 +1991,14 @@ def _sync_profile_from_widgets():
     pev[14]={"No evidence":.15,"Some — marginal":.50,"Strong — documented over-surveillance":.85}.get(pol,.50)
     pev[15]=.85 if age>=55 else .70 if age>=45 else .40 if age>=35 else .20
     pev[16]={"Low DO designation rate":.20,"Medium rate":.45,"High DO designation rate":.72}.get(prov,.45)
-    sv ={"None / in remission":.15,"Low":.35,"Moderate":.60,"High — dependency":.80}.get(sub,.60)
-    pv ={"None identified":.10,"Some — limited":.35,"Strong — primary network":.65}.get(peers,.35)
-    stv={"Stable":.10,"Marginal":.40,"Unstable / homeless":.70}.get(stab,.40)
-    pev[18]=float(np.clip((sv+pv+stv)/3+.05,.05,.92))
-    rv ={"Strong — consistent":.10,"Moderate":.35,"Minimal":.60,"None — apparent refusal":.80,
-         "Anomalously positive (gaming risk)":.30}.get(rehab,.60)
-    pev[19]=float(np.clip(rv+(.12 if prog=="No culturally appropriate programming" else 0),.05,.90))
+    # BUG 1 FIX (Mark 8): stale-taxonomy override of pev[18] (substance/peer/
+    # stability composite) and pev[19] (rehab+programming composite) deleted.
+    # Under CH5 canonical taxonomy, N18 = SCE Profile audit (Gladue/Ewert/
+    # Morris/Ellis) and N19 = Collider Bias — neither is computed from these
+    # widget inputs. The override loop at ~L1710 was silently clobbering the
+    # BN-computed posteriors for both nodes before display, invalidating the
+    # §5.1.18 §7 Morris audit anchors and §5.1.19 §6 collider mechanism.
+    # Awaiting doctrinal-mapping review for substance/peer/stability inputs.
     # Also sync Gladue and SCE checked sets from checkbox keys
     gl_checked = {f["id"] for f in GF if ss.get(f"gl_{f['id']}", False)}
     sce_checked = {f["id"] for f in SF if ss.get(f"sce_{f['id']}", False)}
@@ -3076,6 +3286,57 @@ with TABS[2]:
         st.text_input("Jurisdiction / location", key="case_jur",
                       placeholder="e.g. Calgary · Alberta")
 
+    # ── §5.1.1 Burden-of-proof audit configuration (Mark 8) ───────────────
+    # Per-case strict-mode flag (Q3=A). Stored in session_state and round-
+    # trips on save/load — preserves audit semantics across user handoffs
+    # (defence → Crown → bench review).
+    with st.expander(
+        "⚖ Burden-of-proof audit — case configuration",
+        expanded=False,
+    ):
+        st.markdown(
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#5A5A5A;margin-bottom:14px;line-height:1.55;"
+            "max-width:780px'>"
+            "PARVIS audits each evidentiary input against its applicable burden "
+            "of proof per <em>R. v. Gardiner</em>, [1982] 2 SCR 368 + s. 724(3) "
+            "<em>Criminal Code</em>. Crown-tendered aggravating facts must clear "
+            "BARD; defence-tendered mitigating facts must clear BoP. Audit "
+            "results drive N1 via virtual evidence so audit failures propagate "
+            "structurally through the BN to N1's children. See §RM.1 register on "
+            "Report tab for the full audit ledger."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.checkbox(
+            "**Strict mode** — fire burden-of-proof audit prompt at moment "
+            "of entry rather than at tab-exit",
+            key="strict_mode",
+            help=(
+                "When enabled, each evidentiary input must be classified "
+                "(provenance + use) and attested at the point of entry "
+                "before the user can move on. When disabled (default), "
+                "classification can be deferred to tab-exit or Report-"
+                "generation review. Strict mode is recommended for "
+                "courtroom-handoff scenarios where the audit must be "
+                "complete before transmission. Setting persists with "
+                "the case (round-trips on save/load)."
+            ),
+        )
+        if st.session_state.get("strict_mode", False):
+            st.markdown(
+                "<div style='background:#FFF7E8;border-left:3px solid #BA7517;"
+                "padding:8px 12px;margin-top:8px;border-radius:4px;"
+                "font-size:0.82rem;color:#3A3A3A;line-height:1.5'>"
+                "Strict mode is <strong>active</strong>. Note: full at-entry "
+                "firing is implemented for the Criminal Record tab in the "
+                "current build. Other tabs (Intake, Gladue, SCE, Risk &amp; "
+                "Distortions) currently use tab-exit firing pending Mark 9 "
+                "integration."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
     # ── §5.1.17 N17b counsel attestation (override path) ──────────────────
     # Per JP confirmation M3: primary signal is OR-gate over Gladue/SCE tab
     # evidence; this checkbox is the override for cases where documentation
@@ -3412,6 +3673,15 @@ with TABS[2]:
         )
 
         # ─── Section: Dynamic risk (risk stripe) ───────────────────────────
+        # TODO (Mark 8 / BUG 1 follow-up): UI label "Dynamic risk" with
+        # subscript "N18" reflects pre-CH5 taxonomy. Under CH5, N18 = SCE
+        # Profile audit (Gladue/Ewert/Morris/Ellis), not a substance/peer/
+        # stability composite. This section's widgets (sub/peers/stab) no
+        # longer drive any BN node — see BUG 1 fix at _sync_profile_from_
+        # widgets and the parallel Profile tab posterior-calc block.
+        # Pending doctrinal-mapping review: relabel section header, revise
+        # subscript, and rewire widgets to appropriate CH5 nodes (likely
+        # candidates: N9 IGT/cultural-treatment, or N18 sub-node signals).
         st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
         st.markdown(
             _section_head(
@@ -3594,12 +3864,12 @@ with TABS[2]:
     pev[14]={"No evidence":.15,"Some — marginal":.50,"Strong — documented over-surveillance":.85}[pol]
     pev[15]=.85 if age>=55 else .70 if age>=45 else .40 if age>=35 else .20
     pev[16]={"Low DO designation rate":.20,"Medium rate":.45,"High DO designation rate":.72}[prov]
-    sv={"None / in remission":.15,"Low":.35,"Moderate":.60,"High — dependency":.80}[sub]
-    pv={"None identified":.10,"Some — limited":.35,"Strong — primary network":.65}[peers]
-    stv={"Stable":.10,"Marginal":.40,"Unstable / homeless":.70}[stab]
-    pev[18]=float(np.clip((sv+pv+stv)/3+.05,.05,.92))
-    rv={"Strong — consistent":.10,"Moderate":.35,"Minimal":.60,"None — apparent refusal":.80,"Anomalously positive (gaming risk)":.30}[rehab]
-    pev[19]=float(np.clip(rv+(.12 if prog=="No culturally appropriate programming" else 0),.05,.90))
+    # BUG 1 FIX (Mark 8): stale-taxonomy override of pev[18] and pev[19]
+    # deleted from this Profile tab posterior-calc block, mirroring the
+    # parallel fix in _sync_profile_from_widgets. See that function for full
+    # rationale. The sub/peers/stab/rehab Profile tab widgets remain in place
+    # (rehab still drives pev[13] gaming-risk detection on N13); their
+    # remaining values await doctrinal-mapping review under CH5 taxonomy.
     st.session_state.profile_ev=pev
     run_inf();P=st.session_state.posteriors
     bl2,bc2,_=rb(P[20])
@@ -7341,6 +7611,17 @@ with TABS[4]:
                     "raw_weight":  1.0,
                     "cal_weight":  cal_wt,
                 }
+                # ── §5.1.1 N1 audit (Mark 8) — assign stable audit_id ─────
+                # before append so that _audit_record_for_conviction can
+                # use it. Index is len(criminal_record) before the append
+                # — i.e. the position this entry will occupy.
+                _new_idx = len(st.session_state.criminal_record)
+                entry["audit_id"] = _conviction_audit_id(
+                    _new_idx, entry["year"], entry.get("offence", "")
+                )
+                # Create default audit record (use="contextual", no audit
+                # triggered until user toggles Crown-reliance flag).
+                _audit_record_for_conviction(entry, _new_idx)
                 st.session_state.criminal_record.append(entry)
                 # Sort chronologically (earliest first) — stable, by year only
                 # (so insertions of multiple convictions in the same year retain
@@ -7348,6 +7629,10 @@ with TABS[4]:
                 st.session_state.criminal_record.sort(
                     key=lambda e: int(e.get("year", 0))
                 )
+                # Reconcile audit IDs after the sort (Mark 8 N1 audit).
+                # Removes orphans and ensures every conviction has an
+                # audit_id matching its current index.
+                _sync_conviction_audit_ids()
                 # Feed calibrated N2 and distortion corrections back into the network
                 _cr_feed_nodes()
                 st.rerun()
@@ -8051,8 +8336,164 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
             with cb3:
                 if st.button("Remove", key=f"cr_del_{i}"):
                     st.session_state.criminal_record.pop(i)
+                    # Reconcile audit IDs — removes orphan record from
+                    # session_state.n1_audit (Mark 8 N1 audit).
+                    _sync_conviction_audit_ids()
                     _cr_feed_nodes()
                     st.rerun()
+
+            # ── §5.1.1 N1 burden-of-proof audit (Mark 8) ─────────────────
+            # Crown-reliance audit per Angelillo: is the Crown relying on
+            # this prior as aggravating context? If yes, BARD per Gardiner.
+            # Prior-evidence audit (Bird carve-out) is a Mark 9 build item;
+            # placeholder rendered visible-but-inert per JP scoping.
+            audit_rec = _audit_record_for_conviction(e, i)
+            audit_id = e.get("audit_id")
+            _icon, _label, _color = _audit_status_for_conviction(audit_id)
+
+            with st.expander(
+                f"{_icon}  Burden-of-proof audit — {_label}",
+                expanded=False,
+            ):
+                st.markdown(
+                    f"<div style='font-family:Fraunces,serif;font-style:italic;"
+                    f"font-size:0.86rem;color:#5A5A5A;margin-bottom:12px;"
+                    f"line-height:1.55'>"
+                    f"Per <em>R. v. Angelillo</em> 2006 SCC 55, Crown reliance on "
+                    f"a prior conviction as <em>aggravating</em> context at present "
+                    f"sentencing must clear BARD. Mere existence of the conviction "
+                    f"is res judicata and not subject to fresh audit (subject to "
+                    f"<em>R. v. Bird</em> 2019 SCC 7 collateral-attack carve-outs — "
+                    f"see prior-evidence audit below)."
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                _crown_relies_default = (
+                    audit_rec.get("use") == "aggravating"
+                )
+                _crown_relies = st.checkbox(
+                    "Crown is relying on this prior as **aggravating context** "
+                    "at present sentencing",
+                    value=_crown_relies_default,
+                    key=f"cr_audit_relies_{i}",
+                )
+                if _crown_relies != _crown_relies_default:
+                    _set_conviction_audit_use(audit_id, _crown_relies)
+                    st.rerun()
+
+                if _crown_relies:
+                    st.markdown(
+                        "<div style='background:#FFF7E8;border-left:3px solid "
+                        "#BA7517;padding:10px 14px;margin:12px 0 14px 0;"
+                        "border-radius:4px;font-size:0.86rem;color:#3A3A3A;"
+                        "line-height:1.55'>"
+                        "<strong style='color:#7A4F0E'>BARD audit required.</strong> "
+                        "Per <em style='font-family:Fraunces,serif'>R. v. Gardiner</em>, "
+                        "[1982] 2 SCR 368 + s. 724(3)(e) <em>Criminal Code</em>: "
+                        "Crown-tendered aggravating facts must be proven beyond "
+                        "a reasonable doubt. Record the basis on which BARD is "
+                        "claimed to be met, or mark the attestation insufficient."
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    # Attestation basis dropdown shortcut
+                    _basis_default = audit_rec.get("attestation_basis",
+                                                   ATTESTATION_BASES[0])
+                    if _basis_default not in ATTESTATION_BASES:
+                        _basis_default = ATTESTATION_BASES[0]
+                    _basis = st.selectbox(
+                        "Basis on which BARD is claimed to be met",
+                        ATTESTATION_BASES,
+                        index=ATTESTATION_BASES.index(_basis_default),
+                        key=f"cr_audit_basis_{i}",
+                    )
+
+                    # Attestation free text
+                    _att_default = audit_rec.get("attestation", "")
+                    _att = st.text_area(
+                        "Attestation detail (free text — recorded verbatim "
+                        "in the §RM.1 register)",
+                        value=_att_default,
+                        height=80,
+                        key=f"cr_audit_att_{i}",
+                        placeholder="e.g. 'Admitted by accused at para 14 of "
+                                    "guilty plea allocution; transcript appended.'",
+                    )
+
+                    # Attestation status
+                    _status_options = ["pending", "satisfied", "insufficient"]
+                    _status_labels = {
+                        "pending": "⚠ Pending — attestation incomplete",
+                        "satisfied": "✓ Satisfied — BARD met on the record",
+                        "insufficient": "✗ Insufficient — burden not met "
+                                        "for this aggravating use",
+                    }
+                    _current_status = audit_rec.get("attestation_status",
+                                                    "pending")
+                    if _current_status not in _status_options:
+                        _current_status = "pending"
+                    _status = st.radio(
+                        "Audit status",
+                        _status_options,
+                        index=_status_options.index(_current_status),
+                        format_func=lambda s: _status_labels[s],
+                        key=f"cr_audit_status_{i}",
+                    )
+
+                    # Persist any changes back into the audit record
+                    _changed = (
+                        _basis != _basis_default or
+                        _att != _att_default or
+                        _status != _current_status
+                    )
+                    if _changed:
+                        audit_rec["attestation_basis"] = _basis
+                        audit_rec["attestation"] = _att
+                        audit_rec["attestation_status"] = _status
+                        st.session_state.n1_audit[audit_id] = audit_rec
+                        # No rerun here — let normal Streamlit rerun cycle
+                        # propagate. Avoids duplicate-render thrash on
+                        # rapid keystrokes in the text_area.
+
+                # Prior-evidence audit placeholder (Mark 9 deferred per JP).
+                # Per Bird 2019 SCC 7: where the prior conviction's
+                # underlying evidence failed its applicable burden at the
+                # original proceeding, defence may have a route in via the
+                # collateral-attack procedural-fairness exception. Full
+                # implementation requires access to original trial record
+                # and integration with Layer II distortion-detection nodes.
+                st.markdown(
+                    "<div style='border-top:1px dashed #D8D5CE;margin:14px 0 "
+                    "10px 0'></div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<div style='font-family:JetBrains Mono,monospace;"
+                    "font-size:0.74rem;color:#9E9E9E;margin-bottom:6px'>"
+                    "PRIOR-EVIDENCE AUDIT (Layer 2 — Mark 9 deferred)"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<div style='background:#F5F4F0;border:1px solid #E5E2DA;"
+                    "border-radius:4px;padding:9px 12px;font-size:0.83rem;"
+                    "color:#5A5A5A;line-height:1.55'>"
+                    "<strong>Status:</strong> "
+                    "<span style='font-family:JetBrains Mono,monospace;"
+                    "font-size:0.78rem;color:#7A7A7A'>"
+                    "[awaiting implementation]</span><br>"
+                    "Defence challenge to evidentiary basis of the prior "
+                    "conviction itself, per <em style='font-family:Fraunces,serif'>"
+                    "R. v. Bird</em> 2019 SCC 7 collateral-attack carve-out. "
+                    "Full implementation pending doctrinal scoping and "
+                    "integration with Layer II distortion-detection nodes "
+                    "(N15 IAC, N17 over-policing, N5 invalid risk tools). "
+                    "Will be wired in next development cycle."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
 
         # ── Document analysis integration ──────────────────────────────────────
         st.markdown(
@@ -9005,6 +9446,128 @@ with TABS[12]:
             f"\n\n  Pattern (Boutilier): {esc_info.get('pattern','—').title()}\n"
             f"  {esc_info.get('note','')}\n{'─'*60}</div>",
             unsafe_allow_html=True)
+
+    # ── §RM.1 register: N1 burden-of-proof audit ledger (Mark 8) ─────────────
+    # Per JP architecture lock-in (Q1=A, Q2=A, Q3=A, Q4=B): every audited
+    # input surfaces here with provenance, applicable burden, attestation
+    # text, audit status, and citations. The register makes the trust-with-
+    # transparency model visible: PARVIS records the user's attestation as
+    # an assumption-of-record, then displays it for adversarial review.
+    n1_audit_state = st.session_state.get("n1_audit", {})
+    n1_target = compute_n1_prior_from_audit(n1_audit_state)
+    st.markdown(
+        f"<div class='at' style='margin-top:.8rem'>"
+        f"{'─'*60}\n  §RM.1 — BURDEN-OF-PROOF AUDIT REGISTER\n{'─'*60}\n"
+        f"  Doctrinal basis:\n"
+        f"    {N1_CITATIONS['gardiner']}\n"
+        f"    {N1_CITATIONS['s724']}\n"
+        f"    {N1_CITATIONS['ferguson']}\n"
+        f"    {N1_CITATIONS['angelillo']}\n"
+        f"    {N1_CITATIONS['lacasse']}\n\n"
+        f"  Audit-derived target P(N1=High):  {n1_target*100:.1f}%\n"
+        f"  Live N1 posterior (post-VE):      "
+        f"{Pa.get(1, 0.83)*100:.1f}%\n"
+        f"  Strict mode:                      "
+        f"{'ON' if st.session_state.get('strict_mode', False) else 'off'}\n"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not n1_audit_state:
+        st.markdown(
+            "<div class='at'>  No inputs audited yet.\n"
+            "  Per Mark 8 build status:\n"
+            "    • Criminal Record tab — Crown-reliance audit (Layer 1) live\n"
+            "    • Intake tab          — [awaiting Mark 9 integration]\n"
+            "    • Gladue tab          — [awaiting Mark 9 integration]\n"
+            "    • SCE tab             — [awaiting Mark 9 integration]\n"
+            "    • Risk &amp; Distortions  — [awaiting Mark 9 integration]\n"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        # Group audit records by tab for the register
+        by_tab = {}
+        for aid, rec_audit in n1_audit_state.items():
+            tab_key = rec_audit.get("tab", "unknown")
+            by_tab.setdefault(tab_key, []).append((aid, rec_audit))
+
+        register_lines = []
+        # Status legend
+        _legend = {
+            "satisfied":    "[✓ SATISFIED]",
+            "insufficient": "[✗ INSUFFICIENT]",
+            "pending":      "[⚠ PENDING]",
+        }
+
+        for tab_key in sorted(by_tab.keys()):
+            tab_label = {
+                "criminal_record": "CRIMINAL RECORD",
+                "intake":          "INTAKE",
+                "gladue":          "GLADUE",
+                "sce":             "SCE",
+                "risk":            "RISK & DISTORTIONS",
+            }.get(tab_key, tab_key.upper())
+            register_lines.append(f"\n  ── {tab_label} ──")
+
+            for aid, rec_audit in by_tab[tab_key]:
+                use = rec_audit.get("use", "contextual")
+                provenance = rec_audit.get("provenance", "—")
+                burden = rec_audit.get("applicable_burden", "none")
+                status = rec_audit.get("attestation_status", "pending")
+                label = rec_audit.get("label", aid)
+                attestation = rec_audit.get("attestation", "")
+                basis = rec_audit.get("attestation_basis", "")
+                judicial_type = rec_audit.get("judicial_finding_type")
+
+                if use in ("contextual", "agreed_fact"):
+                    # No audit triggered — record but don't fail
+                    register_lines.append(
+                        f"\n  · {label}\n"
+                        f"      Provenance: {provenance} · "
+                        f"Use: {use} · No audit required."
+                    )
+                else:
+                    status_marker = _legend.get(status, "[?]")
+                    register_lines.append(
+                        f"\n  · {label}  {status_marker}\n"
+                        f"      Provenance: {provenance} · "
+                        f"Use: {use} · Burden: {burden}"
+                    )
+                    if judicial_type:
+                        register_lines.append(
+                            f"      Ferguson sub-flag: {judicial_type}"
+                        )
+                    if basis and basis != ATTESTATION_BASES[0]:
+                        register_lines.append(
+                            f"      Basis: {basis}"
+                        )
+                    if attestation:
+                        # Wrap long attestations
+                        att_text = attestation.replace("\n", " ").strip()
+                        if len(att_text) > 140:
+                            att_text = att_text[:137] + "..."
+                        register_lines.append(
+                            f"      Attestation: \"{att_text}\""
+                        )
+                    elif status == "pending":
+                        register_lines.append(
+                            "      [No attestation recorded — awaiting "
+                            "user input]"
+                        )
+
+                # Prior-evidence audit placeholder (Mark 9 deferred)
+                pea = rec_audit.get("prior_evidence_audit_status")
+                if pea == "not_yet_conducted":
+                    register_lines.append(
+                        "      Prior-evidence audit (Bird carve-out): "
+                        "[awaiting Mark 9 implementation]"
+                    )
+
+        st.markdown(
+            f"<div class='at'>{''.join(register_lines)}\n{'─'*60}</div>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
 

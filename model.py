@@ -835,11 +835,223 @@ def get_inference_engine(model):
     return VariableElimination(model)
 
 
-def query_do_risk(engine, evidence: dict) -> dict:
+# ═════════════════════════════════════════════════════════════════════════════
+# N1 burden-of-proof audit — Mark 8 build (Layer 2: audit logic)
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Per §5.1.1 + R. v. Gardiner [1982] 2 SCR 368 + s.724(3) Criminal Code:
+# the sentencing court must apply the correct evidentiary burden to each
+# fact relied on at sentencing — BARD for Crown-tendered aggravating facts,
+# BoP for defence-tendered mitigating facts. N1 represents whether the
+# burden regime was correctly applied to the inputs constituting the case
+# record.
+#
+# Architecture decisions (Mark 8, all locked):
+#   Q1 = A: per-input dict in app.py session_state, keyed by input_id.
+#           See app.py docstring on ss["n1_audit"].
+#   Q2 = A: derivation function in model.py (here); app.py calls it and
+#           feeds the result through query_do_risk's n1_audit_target arg.
+#   Q3 = A: strict-mode flag is per-case metadata (round-tripped on
+#           save/load), not session-global. Implementation in app.py.
+#   Q4 = B: weighted by aggravating-vs-mitigating impact — aggravating-
+#           fact failures count at full weight; mitigating-fact failures
+#           at 0.6.
+#
+# Provenance × use cross-product (per Gardiner, s.724(3), R. v. Ferguson
+# 2008 SCC 6, R. v. Angelillo 2006 SCC 55):
+#
+#   crown    × aggravating               → BARD audit required
+#   defence  × mitigating                → BoP audit required
+#   judicial × found_by_sentencing_judge → BARD or BoP depending on use
+#                                          (sentencing judge bound by
+#                                           Gardiner asymmetry per Ferguson)
+#   judicial × necessarily_implied       → no fresh audit (binding per
+#                                          Ferguson — burden discharged at
+#                                          trial stage)
+#   judicial × declined_either_way       → positive audit pass (burden
+#                                          machinery worked correctly; fact
+#                                          properly excluded from reliance)
+#   agreed   × agreed_fact               → no audit (no contest)
+#   any      × contextual                → no audit (transparency only,
+#                                          not relied on for sentencing)
+#
+# Trust-with-transparency model (per JP Mark 8 lock-in): PARVIS does not
+# adjudicate whether a user's attestation that a burden was met is
+# doctrinally correct. It records the attestation, treats it as an
+# assumption-of-record, and surfaces it via the §RM.1 register on the
+# Report tab. PARVIS only fails an input when the attestation is missing
+# (status == "pending") or self-flagged insufficient (status ==
+# "insufficient"). The system mirrors appellate review's posture toward
+# the trial record: trust within reason, but make the basis of trust
+# transparent so it can be reviewed.
+#
+# Architectural advantage of virtual evidence (vs profile_ev override):
+# the audit-derived N1 propagates structurally through the BN to N1's
+# children (N2, N3, N4, N6, N8) — not just displayed cosmetically. So
+# if Crown fails BARD on a violent-history fact, the resulting drop in
+# N1 actually propagates to N2's posterior via VE, which in turn feeds
+# the DO risk computation. This is what closes the viva-vulnerability
+# of "does the audit actually do anything beyond display."
+
+# Aggravating-fact-failure weight (Q4=B). Crown failed BARD on a fact
+# relied on as aggravating: full weight to N1 degradation.
+_AUDIT_WEIGHT_AGGRAVATING_FAIL = 1.0
+# Mitigating-fact-failure weight (Q4=B). Defence failed BoP on a fact
+# relied on as mitigating: lesser but material weight.
+_AUDIT_WEIGHT_MITIGATING_FAIL = 0.6
+# Floor on N1 target posterior under catastrophic (100%) audit failure.
+# Even severely degraded proceedings don't justify driving N1 to zero —
+# the doctrinal default that courts apply burden law correctly retains
+# some weight. 0.20 is a defensible severe-degradation anchor.
+_N1_FLOOR_POSTERIOR = 0.20
+# Default target posterior when no auditable inputs are present (empty
+# audit-state, or only inputs that don't trigger burden audit). Matches
+# cpd1's prior [0.17, 0.83]: no failure signal → no degradation.
+_N1_DEFAULT_POSTERIOR = 0.83
+
+
+def compute_n1_prior_from_audit(audit_state: dict) -> float:
+    """
+    Compute the doctrinally derived target P(N1=High) from the audit-state.
+
+    Maps the proportion of weighted burden-audit failures linearly from
+    the default 0.83 down to the floor 0.20 under 100% failure.
+
+    Inputs not requiring a burden audit (agreed_fact, contextual,
+    judicial-binding under Ferguson, judicial-declined-either-way) are
+    excluded from both numerator and denominator — they neither pass
+    nor fail; they're outside the audit's scope.
+
+    Args:
+        audit_state: dict mapping input_id -> {
+            "provenance": str,
+                # "crown" | "defence" | "agreed" | "judicial"
+            "use": str,
+                # "aggravating" | "mitigating" | "contextual" | "agreed_fact"
+            "judicial_finding_type": str | None,
+                # required when provenance == "judicial":
+                # "necessarily_implied" | "found_by_sentencing_judge"
+                #   | "declined_either_way"
+            "attestation_status": str,
+                # "satisfied" | "insufficient" | "pending"
+            ...other fields ignored by this function...
+        }
+
+    Returns:
+        target P(N1=High) in [floor=0.20, default=0.83]
+    """
+    if not audit_state:
+        return _N1_DEFAULT_POSTERIOR
+
+    total_weight = 0.0
+    failed_weight = 0.0
+
+    for _input_id, record in audit_state.items():
+        provenance = record.get("provenance")
+        use = record.get("use")
+        status = record.get("attestation_status", "pending")
+        judicial_type = record.get("judicial_finding_type")
+
+        # Determine whether this input requires a burden audit and what
+        # weight to assign on failure. See Gardiner cross-product table
+        # in the section comment above.
+        burden_required = False
+        weight = 0.0
+
+        if provenance == "crown" and use == "aggravating":
+            burden_required = True
+            weight = _AUDIT_WEIGHT_AGGRAVATING_FAIL
+        elif provenance == "defence" and use == "mitigating":
+            burden_required = True
+            weight = _AUDIT_WEIGHT_MITIGATING_FAIL
+        elif (provenance == "judicial"
+              and judicial_type == "found_by_sentencing_judge"):
+            # Sentencing judge's own finding of fact — Gardiner asymmetry
+            # applies in full per Ferguson.
+            if use == "aggravating":
+                burden_required = True
+                weight = _AUDIT_WEIGHT_AGGRAVATING_FAIL
+            elif use == "mitigating":
+                burden_required = True
+                weight = _AUDIT_WEIGHT_MITIGATING_FAIL
+
+        if not burden_required:
+            continue
+
+        total_weight += weight
+        if status != "satisfied":
+            # "pending" or "insufficient" both count as audit failure.
+            # Trust-with-transparency: PARVIS doesn't adjudicate the
+            # attestation; absence or self-flagged insufficiency is the
+            # only failure trigger.
+            failed_weight += weight
+
+    if total_weight == 0.0:
+        # No inputs required a burden audit. Default posterior unchanged.
+        return _N1_DEFAULT_POSTERIOR
+
+    failure_proportion = failed_weight / total_weight
+    # Linear interpolation from default down to floor.
+    target = (_N1_DEFAULT_POSTERIOR
+              - failure_proportion
+              * (_N1_DEFAULT_POSTERIOR - _N1_FLOOR_POSTERIOR))
+    return float(np.clip(target, _N1_FLOOR_POSTERIOR, _N1_DEFAULT_POSTERIOR))
+
+
+def _audit_to_virtual_evidence(target_posterior: float) -> TabularCPD:
+    """
+    Invert audit-derived target N1 posterior into a virtual-evidence
+    TabularCPD that, when combined with N1's prior [[0.17],[0.83]] under
+    VE, yields the target posterior.
+
+    Math: for prior P(N1=High)=0.83 and virtual evidence likelihood
+    [v_low, v_high] (i.e. P(virtual_obs|N1=Low), P(virtual_obs|N1=High)):
+        posterior = v_high * 0.83 / (v_low * 0.17 + v_high * 0.83)
+    Solving for the ratio v_high/v_low given target posterior T:
+        v_high / v_low = T * 0.17 / (0.83 * (1 - T))
+    Normalized so v_low + v_high = 1 for tidy CPD form.
+
+    Edge cases: T clipped to [0.01, 0.99] to avoid division by zero or
+    numerical singularities at the extremes.
+    """
+    T = float(np.clip(target_posterior, 0.01, 0.99))
+    prior_high = 0.83
+    prior_low = 0.17
+    # Likelihood ratio that yields target posterior T when combined with
+    # the cpd1 prior under Bayes' rule.
+    ratio = T * prior_low / (prior_high * (1 - T))  # v_high / v_low
+    v_low = 1.0 / (1.0 + ratio)
+    v_high = ratio / (1.0 + ratio)
+    return TabularCPD(variable='1', variable_card=2,
+                      values=[[v_low], [v_high]])
+
+
+def query_do_risk(engine, evidence: dict,
+                  n1_audit_target: float = None) -> dict:
     """
     Run Variable Elimination for Nodes 1-19, then compute Node 20 post-VE.
-    evidence: dict of {node_id_str: 0|1} for observed nodes.
-    Returns dict of {node_id: P(High)} for all 20 nodes.
+
+    Args:
+        engine: pgmpy VariableElimination engine over the CH5 BN.
+        evidence: dict of {node_id_str: 0|1} for observed (hard) nodes.
+        n1_audit_target: optional target P(N1=High) derived from the
+            burden-of-proof audit-state via compute_n1_prior_from_audit.
+            When supplied (not None), virtual evidence is injected on N1
+            so the audit-derived value propagates structurally through
+            the BN to N1's children (N2, N3, N4, N6, N8) — not just
+            displayed cosmetically. When None, N1 runs at its static
+            prior [[0.17],[0.83]] (legacy behaviour, preserved for
+            callers that haven't yet wired the audit-state).
+
+    Edge case — N1 in hard evidence: if the caller passes hard evidence
+    on N1 (i.e. evidence['1'] is set) AND n1_audit_target, the hard
+    evidence wins per pgmpy's natural semantics — virtual evidence is
+    soft conditioning, hard evidence is observation. This corresponds
+    to the user manually overriding the audit, which is a deliberate
+    act and should be respected. Documented for transparency.
+
+    Returns:
+        dict of {node_id: P(High)} for all 20 nodes including sub-nodes.
     """
     results = {}
     # Standard nodes 1-19 plus §5.1.17 (17a/b/c/d), §5.1.14 (14a/b/c/d),
@@ -850,6 +1062,12 @@ def query_do_risk(engine, evidence: dict) -> dict:
                 + ['15a', '15b', '15c', '15d']
                 + ['18a', '18b', '18c', '18d'])
 
+    # Build virtual-evidence list for N1 audit if target supplied.
+    # See _audit_to_virtual_evidence and compute_n1_prior_from_audit.
+    virtual_ev = None
+    if n1_audit_target is not None:
+        virtual_ev = [_audit_to_virtual_evidence(n1_audit_target)]
+
     for node in ve_nodes:
         # Sub-nodes (17a/17b/17c/17d) keyed by string; main nodes by int
         node_key = node if not node.isdigit() else int(node)
@@ -857,7 +1075,12 @@ def query_do_risk(engine, evidence: dict) -> dict:
             results[node_key] = float(evidence[node])
             continue
         try:
-            q = engine.query(variables=[node], evidence=evidence, show_progress=False)
+            q = engine.query(
+                variables=[node],
+                evidence=evidence,
+                virtual_evidence=virtual_ev,
+                show_progress=False,
+            )
             results[node_key] = float(q.values[1])
         except Exception:
             results[node_key] = 0.5
