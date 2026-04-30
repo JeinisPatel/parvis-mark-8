@@ -819,24 +819,19 @@ def _doctrinal_frame():
 # ── Session state ─────────────────────────────────────────────────────────────
 def _init():
     defs = {"model":None,"engine":None,"profile_ev":{},"gladue_checked":set(),"criminal_record":[],"cr_doc_adj":{},"saved_scenarios":{},
-            # §5.1.17 N17b counsel attestation — override path per JP M3 confirmation
+            # §5.1.17 N17b counsel attestation — case-level per JP M8/P2
+            # (over-policing is a case-wide policing-environment claim, not
+            # per-conviction). Stays on Profile tab.
             "n17b_counsel_attestation":False,
-            # §5.1.14 N14 counsel attestations — override paths per JP Q6 (α)
-            "n14a_counsel_attestation":False,  # severe sentencing era at original conviction
-            "n14b_counsel_attestation":False,  # mandatory-minimum framework
-            "n14c_sce_applied_attestation":False,  # SCE was applied at original sentencing (inverse: checked = N14c Low)
-            # §5.1.15 N15 counsel attestations — override paths per JP Q6 (α)
-            # NB: N15d shares n14c_sce_applied_attestation (same doctrinal-application
-            # question covers both temporal and tariff dimensions of jurisprudence).
-            "n15a_counsel_attestation":False,  # high-tariff jurisdiction
-            "n15b_counsel_attestation":False,  # tariff-sensitive offence type
-            "n15c_counsel_attestation":False,  # tariff-sensitive sentence length
-            # §5.1.18 N18 counsel attestations — override paths per Q1=β + Q7=α
-            # N18d (Doctrinal Tagging compliance) is BN-derived from N10 — no
-            # separate attestation needed.
-            "n18a_counsel_attestation":False,  # no Morris/Ellis SCE precedent
-            "n18b_counsel_attestation":False,  # SCE absent in reasons aggregate
-            "n18c_counsel_attestation":False,  # SCE substance nominal-or-absent
+            # §5.1.18 N18a counsel attestation — case-level per JP M8/P2
+            # (concerns the present sentencing court's jurisdiction's
+            # SCE-integration precedent, not any prior conviction). Stays
+            # on Profile tab near the case-jurisdiction input.
+            "n18a_counsel_attestation":False,
+            # Mark 8 Phase 2 relocation: N14a/b/c, N15a/b/c, N18b/c moved
+            # to per-conviction storage on the criminal_record entries.
+            # Aggregate signals derived via _any_conviction_attests().
+            # See JP M8/P2 lock-in.
             # §5.1.19 N19 collider-bias secondary computation slots (Q4=C)
             "n19_collider_signal":None,        # set by run_inf via _n19_collider_signal
             "n19_discounted_risk":None,        # set by run_inf via compute_do_risk(collider_discount=True)
@@ -1196,7 +1191,7 @@ def _n14a_signal() -> int:
 
     Returns: 0 (Low/Moderate era) or 1 (High severity era)
     """
-    if st.session_state.get("n14a_counsel_attestation", False):
+    if _any_conviction_attests("n14a_attestation"):
         return 1
     record = st.session_state.get("criminal_record", []) or []
     for entry in record:
@@ -1220,7 +1215,7 @@ def _n14b_signal(criminal_record) -> int:
 
     Returns: 0 (no MM-era conviction) or 1 (MM-era conviction present)
     """
-    if st.session_state.get("n14b_counsel_attestation", False):
+    if _any_conviction_attests("n14b_attestation"):
         return 1
     if not criminal_record:
         return 0
@@ -1255,8 +1250,10 @@ def _n14c_signal(criminal_record) -> int:
     Returns: 0 (SCE present) or 1 (SCE absent at sentencing)
     """
     # Counsel attestation: "SCE was applied at original sentencing"
-    # If checked, force N14c = 0 (SCE present, no distortion contribution)
-    if st.session_state.get("n14c_sce_applied_attestation", False):
+    # If ANY conviction has this flag set per JP M8/P2 any-prior aggregation,
+    # force N14c = 0 (SCE present, no distortion contribution). Inverse
+    # semantics preserved from the case-level original.
+    if _any_conviction_attests("n14c_sce_applied"):
         return 0
     if not criminal_record:
         return 0  # no record → no SCE distortion to flag
@@ -1351,7 +1348,7 @@ def _n15a_signal(case_jur: str) -> int:
 
     Returns: 0 (Low-tariff) or 1 (High-tariff)
     """
-    if st.session_state.get("n15a_counsel_attestation", False):
+    if _any_conviction_attests("n15a_attestation"):
         return 1
     if not case_jur:
         return 0
@@ -1375,7 +1372,7 @@ def _n15b_signal(criminal_record) -> int:
 
     Returns: 0 (no tariff-sensitive offences) or 1 (tariff-sensitive present)
     """
-    if st.session_state.get("n15b_counsel_attestation", False):
+    if _any_conviction_attests("n15b_attestation"):
         return 1
     if not criminal_record:
         return 0
@@ -1413,7 +1410,7 @@ def _n15c_signal(criminal_record) -> int:
 
     Returns: 0 (sentence below threshold) or 1 (long sentence, tariff-relevant)
     """
-    if st.session_state.get("n15c_counsel_attestation", False):
+    if _any_conviction_attests("n15c_attestation"):
         return 1
     if not criminal_record:
         return 0
@@ -1444,7 +1441,7 @@ def _n15d_signal() -> int:
 
     Returns: 0 (jurisprudence applied) or 1 (no jurisprudence applied)
     """
-    if st.session_state.get("n14c_sce_applied_attestation", False):
+    if _any_conviction_attests("n14c_sce_applied"):
         return 0
     return 1
 
@@ -1543,7 +1540,7 @@ def _n18b_signal(criminal_record) -> int:
     Returns: 0 (all convictions have at least nominal SCE presence)
              1 (at least one conviction has SCE absent)
     """
-    if st.session_state.get("n18b_counsel_attestation", False):
+    if _any_conviction_attests("n18b_attestation"):
         return 1
     if not criminal_record:
         return 0  # empty record → no inflation signal
@@ -1570,7 +1567,7 @@ def _n18c_signal(criminal_record) -> int:
     Returns: 0 (all convictions Full/Partial — substantive integration)
              1 (at least one conviction Nominal or Absent)
     """
-    if st.session_state.get("n18c_counsel_attestation", False):
+    if _any_conviction_attests("n18c_attestation"):
         return 1
     if not criminal_record:
         return 0
@@ -1793,6 +1790,263 @@ def _audit_status_for_conviction(aid: str) -> tuple:
         return ("✗", "Burden insufficient", "#A32D2D")
     return ("⚠", "Attestation pending", "#BA7517")
 
+
+# ── §5.1.1 Default-classification helpers (Mark 8 Phase 2) ─────────────────────
+# Pattern A defaults per tab. Each evidentiary input receives a default
+# classification at entry — the user only encounters the audit UI when
+# (a) the default is wrong for a specific input and they override, or
+# (b) strict mode is on and at-tab-exit review surfaces every classification
+# for explicit confirmation. See JP M8/P2 lock-in.
+
+# Tab-level default mapping. None means "no default — prompt the user."
+_TAB_DEFAULT_CLASSIFICATION = {
+    "intake":          None,  # always prompt (free-form fact entry)
+    "gladue":          {"provenance": "defence", "use": "mitigating"},
+    "sce":             {"provenance": "defence", "use": "mitigating"},
+    "risk_substantive": {"provenance": "crown",  "use": "aggravating"},  # N2/N3/N4
+    "risk_distortion":  {"provenance": "defence", "use": "mitigating"},  # N5–N8
+    "risk_mitigation":  {"provenance": "defence", "use": "mitigating"},  # N9 IGT
+    "risk_other":      None,  # N11/N13/N16 — prompt
+    "criminal_record": {"provenance": "judicial", "use": "contextual"},  # default
+    # Profile inputs are case-context parameters, not evidentiary claims —
+    # no audit applied at Profile level (per JP M8/P2 lock-in).
+}
+
+# Burden derivation from provenance × use (per Gardiner asymmetry).
+def _applicable_burden(provenance: str, use: str,
+                        judicial_finding_type: str = None) -> str:
+    """
+    Return the doctrinally applicable burden for an audit record.
+    See model.compute_n1_prior_from_audit for the full cross-product.
+    """
+    if provenance == "crown" and use == "aggravating":
+        return "BARD"
+    if provenance == "defence" and use == "mitigating":
+        return "BoP"
+    if provenance == "judicial" and judicial_finding_type == "found_by_sentencing_judge":
+        if use == "aggravating":
+            return "BARD"
+        if use == "mitigating":
+            return "BoP"
+    return "none"
+
+
+def _default_audit_record(tab: str, label: str,
+                          input_id: str = None,
+                          override_provenance: str = None,
+                          override_use: str = None) -> dict:
+    """
+    Build a default audit record for an evidentiary input.
+
+    tab: one of the keys in _TAB_DEFAULT_CLASSIFICATION
+    label: display description for the §RM.1 register
+    override_provenance/override_use: explicit values that override defaults
+
+    Returns a dict ready to insert into ss["n1_audit"].
+    """
+    defaults = _TAB_DEFAULT_CLASSIFICATION.get(tab) or {}
+    provenance = override_provenance or defaults.get("provenance") or "unspecified"
+    use = override_use or defaults.get("use") or "unspecified"
+    burden = _applicable_burden(provenance, use)
+
+    # Initial status: if both provenance and use have defaults (and aren't
+    # "unspecified"), seed as "pending" so the user can attest. If anything
+    # is unspecified (Pattern A no-default tabs), keep as "pending" but the
+    # UI flags it as "needs classification" rather than "needs attestation."
+    citations = [N1_CITATIONS["gardiner"], N1_CITATIONS["s724"]]
+    if tab == "criminal_record":
+        citations.append(N1_CITATIONS["angelillo"])
+
+    return {
+        "tab": tab,
+        "label": label,
+        "provenance": provenance,
+        "use": use,
+        "judicial_finding_type": None,
+        "applicable_burden": burden,
+        "attestation": "",
+        "attestation_basis": ATTESTATION_BASES[0],
+        "attestation_status": "pending",
+        "citations": citations,
+        "is_default_classified": True,  # flag for UI: classification came from defaults
+    }
+
+
+def _ensure_audit_record(input_id: str, tab: str, label: str,
+                          provenance: str = None, use: str = None) -> dict:
+    """
+    Get or create the audit record for an arbitrary evidentiary input.
+
+    Used by per-tab integration code (Intake / Gladue / SCE / Risk &
+    Distortions). For Criminal Record, see _audit_record_for_conviction.
+    """
+    audit = st.session_state.setdefault("n1_audit", {})
+    if input_id not in audit:
+        audit[input_id] = _default_audit_record(
+            tab, label,
+            input_id=input_id,
+            override_provenance=provenance,
+            override_use=use,
+        )
+    return audit[input_id]
+
+
+def _remove_audit_record(input_id: str):
+    """Remove an audit record (called when an input is deleted/unselected)."""
+    audit = st.session_state.get("n1_audit", {})
+    audit.pop(input_id, None)
+    st.session_state.n1_audit = audit
+
+
+def _classification_chip(audit_rec: dict) -> str:
+    """
+    Build an HTML chip showing an audit record's classification state.
+
+    Chip format: [provenance · use · burden] [status icon]
+    Pattern (b) per JP lock-in: visible classification on every input so
+    override is easy. Strict mode triggers tab-exit review where these
+    chips become editable for bulk reclassification.
+    """
+    provenance = audit_rec.get("provenance", "unspecified")
+    use = audit_rec.get("use", "unspecified")
+    burden = audit_rec.get("applicable_burden", "none")
+    status = audit_rec.get("attestation_status", "pending")
+
+    if use in ("contextual", "agreed_fact") or burden == "none":
+        # No audit triggered — display as informational only
+        return (
+            "<span style='display:inline-block;font-family:JetBrains Mono,monospace;"
+            "font-size:0.68rem;color:#9E9E9E;background:#F5F4F0;border:1px solid "
+            "#E5E2DA;border-radius:3px;padding:2px 6px;margin-left:6px'>"
+            f"{provenance} · {use}</span>"
+        )
+
+    # Status colours
+    if status == "satisfied":
+        bg, fg, border = "#F4F8EE", "#3B6D11", "#C5D7AC"
+        icon = "✓"
+    elif status == "insufficient":
+        bg, fg, border = "#FCEBEB", "#A32D2D", "#E5B5B5"
+        icon = "✗"
+    else:
+        bg, fg, border = "#FAEEDA", "#7A4F0E", "#E5CC95"
+        icon = "⚠"
+
+    return (
+        "<span style='display:inline-block;font-family:JetBrains Mono,monospace;"
+        f"font-size:0.68rem;color:{fg};background:{bg};border:1px solid {border};"
+        "border-radius:3px;padding:2px 6px;margin-left:6px;font-weight:500'>"
+        f"{icon} {provenance} · {use} · {burden}</span>"
+    )
+
+
+# ── Per-conviction attestation aggregators (Mark 8 Phase 2) ───────────────
+# After moving N14/N15/N18 attestations from Profile to per-conviction on
+# Criminal Record, the signal-computation helpers (_compute_n14_evidence
+# etc.) need to read aggregated values rather than single case-level flags.
+# Per JP "any-prior" aggregation rule (M8/P2): aggregate fires if any one
+# conviction has the per-conviction attestation set.
+
+def _any_conviction_attests(field: str) -> bool:
+    """
+    "Any-prior" aggregation: True iff any conviction in criminal_record
+    has the named attestation field set to True.
+
+    Used by _compute_n14_evidence / _compute_n15_evidence /
+    _compute_n18_evidence to derive aggregate audit signals from per-
+    conviction attestations after the Profile-to-Criminal-Record
+    relocation. See JP M8/P2 lock-in.
+    """
+    rec = st.session_state.get("criminal_record", []) or []
+    return any(e.get(field, False) for e in rec)
+
+
+def _strict_mode_review_panel(tab_filter: str = None):
+    """
+    Strict-mode at-tab-exit review (Mark 8 Phase 2 — Pattern B trigger).
+
+    When st.session_state.strict_mode is True, render an at-tab-exit review
+    panel listing audited inputs originating from the named tab (or all tabs
+    if tab_filter is None) and surfacing pending attestations or unspecified
+    classifications. The user can confirm or override classifications in
+    bulk before moving on.
+
+    Per JP M8/P2 lock-in (Pattern A defaults + strict mode triggering Pattern
+    B at-tab-exit review): in standard mode this panel is a no-op (defaults
+    are trusted, attestations can be deferred to Report-tab review). In
+    strict mode, surfaces every classification for explicit confirmation.
+
+    tab_filter: tab key to filter by ("intake", "gladue", "sce",
+    "criminal_record", "risk_*", etc.). None = show all.
+    """
+    if not st.session_state.get("strict_mode", False):
+        return  # Not in strict mode; standard Pattern A behaviour applies.
+
+    audit = st.session_state.get("n1_audit", {})
+    if not audit:
+        return
+
+    # Filter records by tab if requested
+    if tab_filter:
+        records = {aid: r for aid, r in audit.items()
+                   if r.get("tab", "").startswith(tab_filter)}
+    else:
+        records = audit
+
+    if not records:
+        return
+
+    # Identify records needing review: pending attestations OR
+    # unspecified classifications.
+    needs_review = []
+    for aid, r in records.items():
+        use = r.get("use", "unspecified")
+        status = r.get("attestation_status", "pending")
+        if use == "unspecified" or r.get("provenance") == "unspecified":
+            needs_review.append((aid, r, "needs_classification"))
+        elif use not in ("contextual", "agreed_fact") and status != "satisfied":
+            needs_review.append((aid, r, "needs_attestation"))
+
+    if not needs_review:
+        return  # Strict mode on but nothing to review on this tab.
+
+    with st.expander(
+        f"⚖ Strict-mode review — {len(needs_review)} input(s) "
+        f"awaiting classification or attestation",
+        expanded=True,
+    ):
+        st.markdown(
+            "<div style='font-family:Fraunces,serif;font-style:italic;"
+            "font-size:0.86rem;color:#5A5A5A;margin-bottom:14px;line-height:1.55'>"
+            "Strict mode is active. Per <em>R. v. Gardiner</em>, [1982] 2 SCR 368 + "
+            "s. 724(3) <em>Criminal Code</em>, each input listed below requires "
+            "explicit classification (provenance + use) and attestation before "
+            "this case file is complete for adversarial handoff. The default "
+            "classification per Pattern A is shown; override below where the "
+            "default is wrong."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        for aid, r, reason in needs_review:
+            label = r.get("label", aid)
+            default_chip = _classification_chip(r)
+            st.markdown(
+                f"<div style='font-size:0.88rem;margin:8px 0 4px 0'>"
+                f"<strong>{label}</strong>{default_chip}</div>",
+                unsafe_allow_html=True,
+            )
+            if reason == "needs_classification":
+                st.caption(
+                    "⚠ Provenance and/or use are unspecified — this input "
+                    "is in a no-default tab. Open the Report tab §RM.1 "
+                    "register to classify and attest."
+                )
+            else:
+                st.caption(
+                    "⚠ Attestation pending. Open the Report tab §RM.1 "
+                    "register to record the basis on which the burden was met."
+                )
 
 
 def _n19_collider_signal(posteriors: dict) -> dict:
@@ -3368,136 +3622,28 @@ with TABS[2]:
         ),
     )
 
-    # ── §5.1.14 N14 attestations (override paths for temporal distortion) ──
-    # Per Q6 (α): primary signals are year-based heuristics from criminal
-    # record entries; these attestations override when counsel's professional
-    # judgment supports a different reading or when relevant convictions are
-    # not present in the loaded record.
-    st.markdown(
-        "<div style='margin:14px 0 4px 0; font-size:0.78rem; "
-        "font-family:DM Sans, sans-serif; color:#5A5A5A; "
-        "letter-spacing:0.04em; text-transform:uppercase;'>"
-        "§5.1.14 audit signal (N14)"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.checkbox(
-        "Counsel attests prior conviction(s) imposed under severe sentencing era "
-        "(Bill C-10 / pre-Sharma regime) per §5.1.14",
-        key="n14a_counsel_attestation",
-        help=(
-            "§5.1.14 §1 identifies sentencing eras characterised by mandatory "
-            "minimums, 'tough-on-crime' policies, or routine disregard for the "
-            "Tetrad as carriers of institutional severity. The primary heuristic "
-            "auto-detects 2008-2015 convictions in the record (Bill C-10 era). "
-            "Use this override where convictions outside that window were "
-            "imposed under analogously severe regime conditions, or where the "
-            "criminal record entry is incomplete."
-        ),
-    )
-    st.checkbox(
-        "Counsel attests prior conviction(s) arose under mandatory-minimum "
-        "framework per §5.1.14 §5",
-        key="n14b_counsel_attestation",
-        help=(
-            "§5.1.14 §5 identifies mandatory-minimum frameworks as a parent "
-            "input to temporal distortion. Many MMs were struck down post-Nur "
-            "(2015) / Lloyd (2016), but convictions imposed during their force "
-            "carry doctrinal residue. The primary heuristic pattern-matches "
-            "offence text (trafficking, firearm, sexual interference, etc.) "
-            "against 2008-2015 convictions. Use this override where MM-eligible "
-            "offences are present but auto-detection has not flagged them."
-        ),
-    )
-    st.checkbox(
-        "Social Context Evidence (SCE) / Tetrad applied at original sentencing "
-        "per §5.1.14 §5",
-        key="n14c_sce_applied_attestation",
-        help=(
-            "§5.1.14 §5 identifies SCE/Tetrad presence at original sentencing as "
-            "a corrective parent input — when SCE was substantively applied, "
-            "temporal distortion is reduced. The primary heuristic flags SCE as "
-            "absent where pre-Ipeelee (pre-2012) convictions are in the record. "
-            "Check this box where SCE WAS applied at original sentencing (post-"
-            "Ipeelee or substantively integrated earlier) — checking it tells "
-            "the architecture SCE was present (N14c → Low; reduces distortion). "
-            "NOTE: this attestation also drives N15d (jurisprudential compliance "
-            "for tariff-distortion analysis) — same doctrinal-application "
-            "question covers both temporal and tariff dimensions."
-        ),
-    )
+    # ── §5.1.14 / §5.1.15 / §5.1.18 attestations relocated to per-conviction ──
+    # Mark 8 Phase 2 (per JP M8/P2 lock-in): N14a/b/c, N15a/b/c, N18b/c
+    # attestations are now per-conviction on the Criminal Record tab. The
+    # aggregate signals (any-prior aggregation) are derived via
+    # _any_conviction_attests() in the signal-computation helpers. This
+    # decluttering is doctrinally meaningful — a 1998 conviction can carry
+    # "imposed under severe era ✓" while a 2018 prior carries it as ✗,
+    # closer to how a sentencing judge would actually reason. Profile tab
+    # retains only case-level attestations: N17b (over-policing — case-wide
+    # policing-environment claim) and N18a (sentencing court's jurisdictional
+    # SCE-integration precedent).
 
-    # ── §5.1.15 N15 attestations (tariff-distortion overrides) ─────────────
-    # Per Q6 (α): primary signals are pattern-matched from case_jur (N15a),
-    # offence text (N15b), and sentence_type (N15c). N15d shares n14c above.
-    # These attestations override when counsel's professional judgment supports
-    # different reading or when relevant context isn't captured in the record.
+    # ── §5.1.18 N18a counsel attestation (case-level — jurisdiction precedent) ──
+    # Per Q1=β + Q7=α: N18a concerns whether the present sentencing court's
+    # jurisdiction has strong SCE-integration appellate precedent (Morris/
+    # Ellis-equivalent). This is jurisdictional, not per-conviction —
+    # belongs on Profile near case_jur input.
     st.markdown(
         "<div style='margin:14px 0 4px 0; font-size:0.78rem; "
         "font-family:DM Sans, sans-serif; color:#5A5A5A; "
         "letter-spacing:0.04em; text-transform:uppercase;'>"
-        "§5.1.15 audit signal (N15)"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    st.checkbox(
-        "Counsel attests sentencing jurisdiction is high-tariff per "
-        "Doob/Cesaroni/Roach lineage (§5.1.15 §2(d))",
-        key="n15a_counsel_attestation",
-        help=(
-            "§5.1.15 §2(d) cites empirical sentencing research (Doob, Cesaroni, "
-            "Roach, provincial court analyses) documenting material interprovincial "
-            "tariff disparities — particularly in property, drug, and "
-            "administration-of-justice offences. The primary heuristic auto-detects "
-            "Ontario, Manitoba, Saskatchewan, Alberta as high-tariff jurisdictions. "
-            "Use this override where case-specific evidence supports a different "
-            "tariff classification, or where case_jur is incomplete in the profile."
-        ),
-    )
-    st.checkbox(
-        "Counsel attests offence type is tariff-sensitive per §5.1.15 §7",
-        key="n15b_counsel_attestation",
-        help=(
-            "§5.1.15 §7 illustrative CPT identifies Property and Drug offences as "
-            "the classic tariff-sensitive categories — sentence length more "
-            "reflects regional sentencing culture than conduct severity. The "
-            "primary heuristic pattern-matches offence text against tariff-"
-            "sensitive keywords (theft, fraud, trafficking, breach, etc.). Use "
-            "this override where offence is tariff-sensitive but auto-detection "
-            "missed it (e.g., specialised offence terminology)."
-        ),
-    )
-    st.checkbox(
-        "Counsel attests sentence length exceeds offence-conditional tariff "
-        "threshold per §5.1.15 §7",
-        key="n15c_counsel_attestation",
-        help=(
-            "§5.1.15 §7 thresholds: tariff-sensitive offences become tariff-"
-            "distortion-prone above 1 year; conduct-driven offences (violent, "
-            "sexual) above 3 years. The primary heuristic auto-detects Federal "
-            "custody (2+ years) which always exceeds the 1-year threshold. Use "
-            "this override for Provincial custody cases that exceeded the "
-            "offence-conditional threshold (e.g., 18-month provincial sentence "
-            "for a property offence — exceeds the 1-year tariff threshold)."
-        ),
-    )
-    st.caption(
-        "Note: N15d (jurisprudential compliance) shares the §5.1.14 SCE-applied "
-        "attestation above — single doctrinal-application question covers both "
-        "temporal and tariff dimensions."
-    )
-
-    # ── §5.1.18 N18 attestations (SCE Profile audit overrides) ──────────────
-    # Per Q1=β + Q7=α: primary signals are derived from per-conviction
-    # sce_integration_tag (set on Criminal Record tab) and case_jur (N18a).
-    # Counsel attestations override when professional judgment supports
-    # different reading or context isn't captured in the record. N18d is
-    # BN-derived from N10 — no separate attestation needed.
-    st.markdown(
-        "<div style='margin:14px 0 4px 0; font-size:0.78rem; "
-        "font-family:DM Sans, sans-serif; color:#5A5A5A; "
-        "letter-spacing:0.04em; text-transform:uppercase;'>"
-        "§5.1.18 audit signal (N18)"
+        "§5.1.18 audit signal (N18a — jurisdictional)"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -3512,41 +3658,10 @@ with TABS[2]:
             "(2021 ONCA 680) and BC post-Ellis (2022 BCCA 278); SCC cases bind "
             "nationwide. The primary heuristic auto-detects ON/BC/SCC. Use "
             "this override where case-specific context indicates weaker "
-            "SCE-integration scrutiny than the jurisdictional default suggests."
+            "SCE-integration scrutiny than the jurisdictional default suggests. "
+            "N18b (SCE presence in reasons) and N18c (SCE substance) are now "
+            "per-conviction on the Criminal Record tab."
         ),
-    )
-    st.checkbox(
-        "Counsel attests SCE absent from reasons in at least one prior "
-        "conviction (aggregate override)",
-        key="n18b_counsel_attestation",
-        help=(
-            "§5.1.18 §5 row 3: SCE Presence in Reasons. The primary heuristic "
-            "aggregates over per-conviction SCE-integration tags set on the "
-            "Criminal Record tab. Use this override where counsel's review "
-            "indicates SCE absent in reasons even where the per-conviction "
-            "tag has not been updated, or where the doctrinal absence is "
-            "case-specifically established."
-        ),
-    )
-    st.checkbox(
-        "Counsel attests SCE substance nominal-only or absent in at least "
-        "one prior conviction (Morris Heuristic Audit)",
-        key="n18c_counsel_attestation",
-        help=(
-            "§5.1.18 doctrinal foundation cites the Morris Heuristic Audit "
-            "demonstrating that even when Gladue is cited, substantive "
-            "sentencing impact is often absent or minimal. The primary "
-            "heuristic aggregates over per-conviction tags (state 1 when any "
-            "conviction tagged Nominal or Absent). Use this override where "
-            "counsel's substantive review indicates merely nominal "
-            "engagement even where per-conviction tags have not been updated."
-        ),
-    )
-    st.caption(
-        "Note: N18d (Doctrinal Tagging compliance) is BN-derived from N10 "
-        "(Misapplication) per Q5 (α) — no separate attestation. Per-conviction "
-        "SCE-integration tags (Full / Partial / Nominal / Absent) are set on "
-        "the Criminal Record tab and drive N18b and N18c aggregate signals."
     )
 
     # Visual separator below case-id
@@ -4079,6 +4194,27 @@ with TABS[5]:
 
     # Update session state with current checked set
     st.session_state.gladue_checked = cg
+
+    # ── §5.1.1 N1 audit reconciliation (Mark 8 Phase 2) ───────────────────
+    # Each checked Gladue factor becomes an audited input with default
+    # classification: defence-tendered, mitigating, BoP. Unchecked factors
+    # have their audit records removed (orphan cleanup). Per JP M8/P2:
+    # Pattern A defaults — user only sees audit UI when overriding or
+    # when strict mode triggers tab-exit review.
+    _gladue_audit_ids_now = {f"gladue_{fid}" for fid in cg}
+    # Add audit records for newly-checked factors
+    for f in GF:
+        if f["id"] in cg:
+            aid = f"gladue_{f['id']}"
+            _ensure_audit_record(
+                aid, "gladue", f"Gladue factor — {f['l']}"
+            )
+    # Remove audit records for newly-unchecked factors
+    _existing = st.session_state.get("n1_audit", {})
+    for aid in list(_existing.keys()):
+        if aid.startswith("gladue_") and aid not in _gladue_audit_ids_now:
+            _remove_audit_record(aid)
+
     run_inf()
     P = st.session_state.posteriors
     bl, _bc, _bg = rb(P[20])
@@ -4439,6 +4575,23 @@ with TABS[6]:
     st.session_state.sce_values = sce_vals
     # Keep sce_checked in sync for backwards compatibility with QBism diagnostics
     st.session_state.sce_checked = {fid for fid, v in sce_vals.items() if v > 0.01}
+
+    # ── §5.1.1 N1 audit reconciliation (Mark 8 Phase 2) ───────────────────
+    # Each active SCE factor becomes an audited input with default
+    # classification: defence-tendered, mitigating, BoP (per Morris/Ellis
+    # framework). Unchecked factors have audit records removed.
+    _sce_audit_ids_now = {f"sce_{fid}" for fid in st.session_state.sce_checked}
+    for f in SF:
+        if f["id"] in st.session_state.sce_checked:
+            aid = f"sce_{f['id']}"
+            _ensure_audit_record(
+                aid, "sce", f"SCE factor — {f['l']}"
+            )
+    _existing_sce = st.session_state.get("n1_audit", {})
+    for aid in list(_existing_sce.keys()):
+        if aid.startswith("sce_") and aid not in _sce_audit_ids_now:
+            _remove_audit_record(aid)
+
     run_inf()
     P = st.session_state.posteriors
     bl_sce, _bc_sce, _bg_sce = rb(P[20])
@@ -4690,6 +4843,54 @@ with TABS[7]:
     # Save manual_ev state
     st.session_state.manual_ev = man
 
+    # ── §5.1.1 N1 audit reconciliation (Mark 8 Phase 2) ───────────────────
+    # Each manually-overridden node becomes an audited input. Default
+    # classification by node type per JP M8/P2 lock-in:
+    #   "risk"       → Crown-tendered, aggravating, BARD (N2/N3/N4)
+    #   "distortion" → defence-tendered, mitigating, BoP (N5/N6/N7/N10/etc.)
+    #   "mitigation" → defence-tendered, mitigating, BoP (N9 IGT)
+    #   "dual"       → defence-tendered, mitigating, BoP (N8 FASD — JP lean)
+    #   "special"    → no default (prompt; N11 gaming detector)
+    # Override functionality (changing the default for a specific node) is
+    # available via the §RM.1 register on the Report tab and via strict-mode
+    # at-tab-exit review. Most users will not need to override defaults.
+    _risk_type_to_default = {
+        "risk":       ("crown",   "aggravating"),
+        "distortion": ("defence", "mitigating"),
+        "mitigation": ("defence", "mitigating"),
+        "dual":       ("defence", "mitigating"),
+        # "special" → no entry (default is None, triggers no-default path)
+    }
+    _risk_audit_ids_now = set()
+    for _nid in st.session_state.manual_ev.keys():
+        # manual_ev keys are the int node IDs of overridden nodes
+        _meta = NODE_META.get(_nid, {})
+        _type = _meta.get("type", "")
+        _label = _meta.get("short", f"Node {_nid}")
+        _default = _risk_type_to_default.get(_type)
+        _aid = f"risk_n{_nid}"
+        _risk_audit_ids_now.add(_aid)
+        if _default:
+            _prov, _use = _default
+        else:
+            # No default for this node type ("special"). Create an audit
+            # record with unspecified provenance/use so the user is
+            # prompted via §RM.1 register or strict-mode review.
+            _prov, _use = None, None
+        _ensure_audit_record(
+            _aid, "risk_substantive" if _type == "risk"
+                  else ("risk_distortion" if _type == "distortion"
+                        else ("risk_mitigation" if _type in ("mitigation", "dual")
+                              else "risk_other")),
+            f"Risk override — N{_nid} {_label}",
+            provenance=_prov, use=_use,
+        )
+    # Remove audit records for nodes no longer overridden
+    _existing_risk = st.session_state.get("n1_audit", {})
+    for aid in list(_existing_risk.keys()):
+        if aid.startswith("risk_n") and aid not in _risk_audit_ids_now:
+            _remove_audit_record(aid)
+
     # ── Reset action ──────────────────────────────────────────────────────
     rsc1, rsc2, rsc3 = st.columns([1, 1, 2])
     with rsc1:
@@ -4698,6 +4899,15 @@ with TABS[7]:
                 st.session_state[k] = {}
             st.session_state.gladue_checked = set()
             st.session_state.sce_checked = set()
+            # Mark 8 Phase 2: also clear audit records sourced from these
+            # tabs (gladue_*, sce_*, risk_n*). Criminal Record audits are
+            # left intact since reset doesn't clear convictions.
+            _audit = st.session_state.get("n1_audit", {})
+            for aid in list(_audit.keys()):
+                if (aid.startswith("gladue_") or aid.startswith("sce_")
+                        or aid.startswith("risk_n")):
+                    _audit.pop(aid, None)
+            st.session_state.n1_audit = _audit
             st.rerun()
 
     # ── Run inference + slim live-result strip ────────────────────────────
@@ -8473,13 +8683,194 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
                         # propagate. Avoids duplicate-render thrash on
                         # rapid keystrokes in the text_area.
 
-                # Prior-evidence audit placeholder (Mark 9 deferred per JP).
-                # Per Bird 2019 SCC 7: where the prior conviction's
-                # underlying evidence failed its applicable burden at the
-                # original proceeding, defence may have a route in via the
-                # collateral-attack procedural-fairness exception. Full
-                # implementation requires access to original trial record
-                # and integration with Layer II distortion-detection nodes.
+                # ── §5.1.14 / §5.1.15 / §5.1.18 per-conviction attestations ──
+                # Mark 8 Phase 2: Layer II distortion attestations relocated
+                # from Profile to per-conviction. Aggregate signals derived
+                # via _any_conviction_attests("...") in the signal-computation
+                # helpers — any-prior aggregation per JP M8/P2 lock-in.
+                st.markdown(
+                    "<div style='border-top:1px dashed #D8D5CE;margin:14px 0 "
+                    "10px 0'></div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<div style='font-family:JetBrains Mono,monospace;"
+                    "font-size:0.74rem;color:#5A5A5A;margin-bottom:8px'>"
+                    "LAYER II DISTORTION ATTESTATIONS (per-conviction)"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<div style='font-family:Fraunces,serif;font-style:italic;"
+                    "font-size:0.82rem;color:#5A5A5A;margin-bottom:10px;"
+                    "line-height:1.5'>"
+                    "Counsel attestations specific to <em>this</em> "
+                    "conviction. Aggregate signals (any-prior) feed N14 "
+                    "(temporal distortion), N15 (tariff distortion), and N18 "
+                    "(SCE Profile audit)."
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # ── §5.1.14 (temporal distortion) ─────────────────────────
+                st.markdown(
+                    "<div style='font-family:JetBrains Mono,monospace;"
+                    "font-size:0.70rem;color:#7A7A7A;letter-spacing:0.04em;"
+                    "text-transform:uppercase;margin:8px 0 2px 0'>"
+                    "§5.1.14 — N14 temporal distortion"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                _n14a_default = e.get("n14a_attestation", False)
+                _n14a_new = st.checkbox(
+                    "Imposed under severe sentencing era "
+                    "(Bill C-10 / pre-Sharma regime)",
+                    value=_n14a_default,
+                    key=f"cr_n14a_{i}",
+                    help=(
+                        "§5.1.14 §1 identifies sentencing eras characterised "
+                        "by mandatory minimums or 'tough-on-crime' policies "
+                        "as carriers of institutional severity. Auto-detects "
+                        "2008–2015 (Bill C-10 era); use this override where "
+                        "the conviction sits outside that window but was "
+                        "imposed under analogously severe regime conditions."
+                    ),
+                )
+                _n14b_default = e.get("n14b_attestation", False)
+                _n14b_new = st.checkbox(
+                    "Arose under mandatory-minimum framework",
+                    value=_n14b_default,
+                    key=f"cr_n14b_{i}",
+                    help=(
+                        "§5.1.14 §5: MM frameworks are a parent input to "
+                        "temporal distortion. Use where MM-eligible offences "
+                        "are present but the auto-detection (offence-text + "
+                        "year heuristic) hasn't flagged them."
+                    ),
+                )
+                _n14c_default = e.get("n14c_sce_applied", False)
+                _n14c_new = st.checkbox(
+                    "SCE / Tetrad **was** applied at this conviction's "
+                    "original sentencing",
+                    value=_n14c_default,
+                    key=f"cr_n14c_{i}",
+                    help=(
+                        "§5.1.14 §5: when SCE was substantively applied, "
+                        "temporal distortion is reduced. Inverse semantics: "
+                        "checked = SCE present = N14c → Low. Also drives N15d "
+                        "(jurisprudential compliance for tariff distortion)."
+                    ),
+                )
+
+                # ── §5.1.15 (tariff distortion) ───────────────────────────
+                st.markdown(
+                    "<div style='font-family:JetBrains Mono,monospace;"
+                    "font-size:0.70rem;color:#7A7A7A;letter-spacing:0.04em;"
+                    "text-transform:uppercase;margin:10px 0 2px 0'>"
+                    "§5.1.15 — N15 tariff distortion"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                _n15a_default = e.get("n15a_attestation", False)
+                _n15a_new = st.checkbox(
+                    "Imposed in high-tariff jurisdiction "
+                    "(Doob/Cesaroni/Roach lineage)",
+                    value=_n15a_default,
+                    key=f"cr_n15a_{i}",
+                    help=(
+                        "§5.1.15 §2(d): empirical research documents material "
+                        "interprovincial tariff disparities. Auto-detection "
+                        "covers ON/MB/SK/AB; override where this conviction's "
+                        "jurisdiction warrants different classification."
+                    ),
+                )
+                _n15b_default = e.get("n15b_attestation", False)
+                _n15b_new = st.checkbox(
+                    "Tariff-sensitive offence type",
+                    value=_n15b_default,
+                    key=f"cr_n15b_{i}",
+                    help=(
+                        "§5.1.15 §7: property and drug offences are the "
+                        "classic tariff-sensitive categories. Override where "
+                        "specialised offence terminology defeats keyword "
+                        "auto-detection."
+                    ),
+                )
+                _n15c_default = e.get("n15c_attestation", False)
+                _n15c_new = st.checkbox(
+                    "Sentence length exceeds offence-conditional tariff "
+                    "threshold",
+                    value=_n15c_default,
+                    key=f"cr_n15c_{i}",
+                    help=(
+                        "§5.1.15 §7 thresholds: tariff-sensitive offences "
+                        "above 1 year; conduct-driven (violent/sexual) above "
+                        "3 years. Override e.g. for an 18-month provincial "
+                        "property-offence sentence exceeding the 1-year cap."
+                    ),
+                )
+
+                # ── §5.1.18 (SCE Profile audit) ───────────────────────────
+                st.markdown(
+                    "<div style='font-family:JetBrains Mono,monospace;"
+                    "font-size:0.70rem;color:#7A7A7A;letter-spacing:0.04em;"
+                    "text-transform:uppercase;margin:10px 0 2px 0'>"
+                    "§5.1.18 — N18 SCE profile audit"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                _n18b_default = e.get("n18b_attestation", False)
+                _n18b_new = st.checkbox(
+                    "SCE absent from reasons in this conviction",
+                    value=_n18b_default,
+                    key=f"cr_n18b_{i}",
+                    help=(
+                        "§5.1.18 §5 row 3: SCE Presence in Reasons. Aggregate "
+                        "signal fires if any prior has SCE absent. Use where "
+                        "this conviction's reasons lack SCE engagement."
+                    ),
+                )
+                _n18c_default = e.get("n18c_attestation", False)
+                _n18c_new = st.checkbox(
+                    "SCE substance nominal-only or absent in this conviction "
+                    "(Morris Heuristic Audit)",
+                    value=_n18c_default,
+                    key=f"cr_n18c_{i}",
+                    help=(
+                        "§5.1.18: even where Gladue is cited, substantive "
+                        "sentencing impact is often absent or minimal. Use "
+                        "where this conviction's SCE engagement was nominal "
+                        "(referenced but not substantively applied)."
+                    ),
+                )
+
+                # Persist any toggles back to the conviction entry. Avoid
+                # rerun thrash by only writing when something changed.
+                _attestation_changed = (
+                    _n14a_new != _n14a_default or
+                    _n14b_new != _n14b_default or
+                    _n14c_new != _n14c_default or
+                    _n15a_new != _n15a_default or
+                    _n15b_new != _n15b_default or
+                    _n15c_new != _n15c_default or
+                    _n18b_new != _n18b_default or
+                    _n18c_new != _n18c_default
+                )
+                if _attestation_changed:
+                    e["n14a_attestation"] = _n14a_new
+                    e["n14b_attestation"] = _n14b_new
+                    e["n14c_sce_applied"] = _n14c_new
+                    e["n15a_attestation"] = _n15a_new
+                    e["n15b_attestation"] = _n15b_new
+                    e["n15c_attestation"] = _n15c_new
+                    e["n18b_attestation"] = _n18b_new
+                    e["n18c_attestation"] = _n18c_new
+                    # entry is a reference into st.session_state.criminal_record;
+                    # the mutation is already persisted. Trigger rerun so the
+                    # signal helpers re-read on next pass.
+                    st.rerun()
+
+                # ── PRIOR-EVIDENCE AUDIT placeholder (Mark 9 deferred) ────
                 st.markdown(
                     "<div style='border-top:1px dashed #D8D5CE;margin:14px 0 "
                     "10px 0'></div>",
@@ -8702,7 +9093,7 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
             # Replicate _n14a_signal logic for display
             _n14a_count = sum(1 for e in _record
                               if 2008 <= int(e.get("year", 0) or 0) <= 2015)
-            _n14a_attest = st.session_state.get("n14a_counsel_attestation", False)
+            _n14a_attest = _any_conviction_attests("n14a_attestation")
             _n14a_state = "High" if (_n14a_count > 0 or _n14a_attest) else "Low"
             
             # Replicate _n14b_signal logic
@@ -8715,13 +9106,13 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
                     continue
                 if 2008 <= _yr <= 2015 and any(p in _off for p in _N14B_MM_OFFENCE_PATTERNS):
                     _n14b_count += 1
-            _n14b_attest = st.session_state.get("n14b_counsel_attestation", False)
+            _n14b_attest = _any_conviction_attests("n14b_attestation")
             _n14b_state = "High" if (_n14b_count > 0 or _n14b_attest) else "Low"
             
             # Replicate _n14c_signal logic
             _n14c_pre_ipeelee = sum(1 for e in _record
                                     if 0 < int(e.get("year", 0) or 0) < 2012)
-            _n14c_attest = st.session_state.get("n14c_sce_applied_attestation", False)
+            _n14c_attest = _any_conviction_attests("n14c_sce_applied")
             _n14c_state = ("Low (SCE present)" if _n14c_attest 
                            else ("High (SCE absent)" if _n14c_pre_ipeelee > 0 else "Low"))
 
@@ -8832,7 +9223,7 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
             # Replicate _n15a logic for display
             _case_lower = _case_jur.lower()
             _n15a_match = any(j in _case_lower for j in _N15_HIGH_TARIFF_JURISDICTIONS)
-            _n15a_attest = st.session_state.get("n15a_counsel_attestation", False)
+            _n15a_attest = _any_conviction_attests("n15a_attestation")
             _n15a_state = "High-tariff" if (_n15a_match or _n15a_attest) else "Low-tariff"
 
             # Replicate _n15b logic
@@ -8843,17 +9234,17 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
                 _cd = any(p in _off for p in _N15_CONDUCT_DRIVEN_PATTERNS)
                 if _ts and not _cd:
                     _n15b_count += 1
-            _n15b_attest = st.session_state.get("n15b_counsel_attestation", False)
+            _n15b_attest = _any_conviction_attests("n15b_attestation")
             _n15b_state = "Tariff-sensitive" if (_n15b_count > 0 or _n15b_attest) else "Conduct-driven / none"
 
             # Replicate _n15c logic
             _n15c_fed_count = sum(1 for _e in _record
                                    if "Federal custody" in (_e.get("sentence_type", "") or ""))
-            _n15c_attest = st.session_state.get("n15c_counsel_attestation", False)
+            _n15c_attest = _any_conviction_attests("n15c_attestation")
             _n15c_state = "Long sentence" if (_n15c_fed_count > 0 or _n15c_attest) else "Short / none"
 
             # N15d shares n14c
-            _n15d_attest = st.session_state.get("n14c_sce_applied_attestation", False)
+            _n15d_attest = _any_conviction_attests("n14c_sce_applied")
             _n15d_state = "Doctrine present" if _n15d_attest else "Doctrine absent"
 
             st.markdown(
@@ -8977,8 +9368,8 @@ The boost reflects §5.1.7 §2: "Bail denial combined with ineffective counsel m
             _n18a_state = "No Morris/Ellis" if (not _n18a_match or _n18a_attest) else "Morris/Ellis/SCC"
 
             # Replicate _n18b/c logic — count tag distribution
-            _n18b_attest = st.session_state.get("n18b_counsel_attestation", False)
-            _n18c_attest = st.session_state.get("n18c_counsel_attestation", False)
+            _n18b_attest = _any_conviction_attests("n18b_attestation")
+            _n18c_attest = _any_conviction_attests("n18c_attestation")
             _tag_counts = {"Full":0, "Partial":0, "Nominal":0, "Absent":0}
             for _e in _record:
                 _t = _e.get("sce_integration_tag", _N18_TAG_DEFAULT)
@@ -9463,12 +9854,18 @@ with TABS[12]:
             f"  {esc_info.get('note','')}\n{'─'*60}</div>",
             unsafe_allow_html=True)
 
-    # ── §RM.1 register: N1 burden-of-proof audit ledger (Mark 8) ─────────────
-    # Per JP architecture lock-in (Q1=A, Q2=A, Q3=A, Q4=B): every audited
-    # input surfaces here with provenance, applicable burden, attestation
-    # text, audit status, and citations. The register makes the trust-with-
-    # transparency model visible: PARVIS records the user's attestation as
-    # an assumption-of-record, then displays it for adversarial review.
+    # ── §RM.1 register: N1 burden-of-proof audit ledger (Mark 8 Phase 2) ────
+    # Per JP architecture lock-in (Q1=A, Q2=A, Q3=A, Q4=B + M8/P2 Pattern A):
+    # every audited input across all integrated tabs surfaces here with
+    # provenance, applicable burden, attestation text, audit status, and
+    # citations. The register makes the trust-with-transparency model
+    # visible: PARVIS records the user's attestation as an assumption-of-
+    # record and displays it for adversarial review.
+
+    # Strict-mode review panel — surfaces pending classifications and
+    # attestations across all tabs. No-op when strict_mode is off.
+    _strict_mode_review_panel(tab_filter=None)
+
     n1_audit_state = st.session_state.get("n1_audit", {})
     n1_target = compute_n1_prior_from_audit(n1_audit_state)
     st.markdown(
@@ -9492,12 +9889,12 @@ with TABS[12]:
     if not n1_audit_state:
         st.markdown(
             "<div class='at'>  No inputs audited yet.\n"
-            "  Per Mark 8 build status:\n"
-            "    • Criminal Record tab — Crown-reliance audit (Layer 1) live\n"
-            "    • Intake tab          — [awaiting Mark 9 integration]\n"
-            "    • Gladue tab          — [awaiting Mark 9 integration]\n"
-            "    • SCE tab             — [awaiting Mark 9 integration]\n"
-            "    • Risk &amp; Distortions  — [awaiting Mark 9 integration]\n"
+            "  Per Mark 8 Phase 2 build status:\n"
+            "    • Criminal Record tab     — full audit live\n"
+            "    • Gladue tab              — full audit live\n"
+            "    • SCE tab                 — full audit live\n"
+            "    • Risk &amp; Distortions  — full audit live\n"
+            "    • Intake tab              — [awaiting Mark 9 integration]\n"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -9518,11 +9915,14 @@ with TABS[12]:
 
         for tab_key in sorted(by_tab.keys()):
             tab_label = {
-                "criminal_record": "CRIMINAL RECORD",
-                "intake":          "INTAKE",
-                "gladue":          "GLADUE",
-                "sce":             "SCE",
-                "risk":            "RISK & DISTORTIONS",
+                "criminal_record":   "CRIMINAL RECORD",
+                "intake":            "INTAKE",
+                "gladue":            "GLADUE",
+                "sce":               "SCE / MORRIS-ELLIS",
+                "risk_substantive":  "RISK & DISTORTIONS — SUBSTANTIVE (N2/N3/N4)",
+                "risk_distortion":   "RISK & DISTORTIONS — DISTORTION NODES",
+                "risk_mitigation":   "RISK & DISTORTIONS — MITIGATION (N8/N9)",
+                "risk_other":        "RISK & DISTORTIONS — OTHER (N11 GAMING, ETC.)",
             }.get(tab_key, tab_key.upper())
             register_lines.append(f"\n  ── {tab_label} ──")
 
