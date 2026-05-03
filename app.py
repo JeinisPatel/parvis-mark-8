@@ -50,9 +50,10 @@ Jeinis Patel, PhD Candidate and Barrister | University of London | Ethical AI In
 # ═════════════════════════════════════════════════════════════════════════════
 
 import streamlit as st
+import streamlit.components.v1 as components
 import matplotlib.pyplot as plt
 import numpy as np
-import base64, os
+import base64, math, os
 from datetime import datetime
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
@@ -2730,6 +2731,185 @@ def draw_dag(post,sel=None):
     ax.legend(handles=handles,loc='upper right',fontsize=7.5,framealpha=.92,edgecolor='#ddd')
     plt.tight_layout(pad=.5);return fig
 
+# ── SVG renderer (Mark 8.x preview) ──────────────────────────────────────────
+# Drop-in replacement for draw_dag(post, sel). Preserves layout (NP), type
+# colours (TC), per-node posterior arcs, and the N1 doctrinal-state colouring
+# rule from the matplotlib version. Adds: rounded-rect node boxes with N#
+# inside, hover tooltips with full node names, selection highlight via
+# saturated fill + thicker stroke. Sub-nodes (17a-d, 14a-d, 15a-d, 18a-d)
+# render at smaller scale matching the matplotlib hierarchy.
+#
+# The toggle in the Architecture tab swaps between this and draw_dag without
+# touching draw_dag itself; flip the toggle off to revert to matplotlib.
+def render_dag_svg(post, sel=None):
+    W, H = 1000, 700
+
+    def mpl_to_svg(mx, my):
+        # Matches xlim=(-.06,1.02), ylim=(-.08,1.02) from draw_dag
+        return ((mx + 0.06) / 1.08) * W, ((1.02 - my) / 1.10) * H
+
+    # N1 doctrinal-state colour (mirrors lines ~2689-2694 in draw_dag)
+    _n1_state = _n1_doctrinal_state()
+    _n1_pct_color = {
+        "default": "#3B6D11", "pressure": "#BA7517", "failure": "#A32D2D",
+    }.get(_n1_state, "#3B6D11")
+
+    out = [
+        f'<svg viewBox="0 0 {W} {H}" width="100%" '
+        f'xmlns="http://www.w3.org/2000/svg" '
+        f'style="background:#fafafa;font-family:Inter,system-ui,sans-serif">',
+        '<defs>'
+        '<marker id="parr-d" viewBox="0 0 10 10" refX="9" refY="5" '
+        'markerWidth="5" markerHeight="5" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" fill="#ccc"/></marker>'
+        '<marker id="parr-h" viewBox="0 0 10 10" refX="9" refY="5" '
+        'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker>'
+        '</defs>',
+    ]
+
+    # ── Layer bands + vertical layer labels at left margin
+    sx_left, _  = mpl_to_svg(0.0, 0.0)
+    sx_right, _ = mpl_to_svg(1.0, 0.0)
+    for title, subtitle, my_top, my_bot in [
+        ("LAYER I",   "Substantive risk",                          0.93,  0.83),
+        ("LAYER II",  "Systemic distortion & doctrinal fidelity",  0.82,  0.29),
+        ("LAYER III", "Structural output",                          0.05, -0.04),
+    ]:
+        _, sy_top = mpl_to_svg(0, my_top)
+        _, sy_bot = mpl_to_svg(0, my_bot)
+        out.append(
+            f'<rect x="{sx_left:.0f}" y="{sy_top:.0f}" '
+            f'width="{sx_right-sx_left:.0f}" height="{sy_bot-sy_top:.0f}" '
+            f'fill="#f0f0f0" opacity="0.55"/>'
+        )
+        ly = (sy_top + sy_bot) / 2
+        lx = max(sx_left - 24, 14)
+        out.append(
+            f'<text x="{lx}" y="{ly}" transform="rotate(-90 {lx} {ly})" '
+            f'text-anchor="middle" font-size="9" font-weight="700" '
+            f'fill="#aaa" letter-spacing="0.06em">{title}'
+            f'<tspan x="{lx}" dy="13" font-weight="400" font-style="italic" '
+            f'font-size="8" fill="#bbb">{subtitle}</tspan></text>'
+        )
+
+    # ── Edges
+    for f, t in EDGES:
+        if f not in NP or t not in NP:
+            continue
+        x1, y1 = mpl_to_svg(*NP[f])
+        x2, y2 = mpl_to_svg(*NP[t])
+        hi = sel is not None and (f == sel or t == sel)
+        stroke, sw = ("#888", 1.2) if hi else ("#ccc", 0.6)
+        marker = "parr-h" if hi else "parr-d"
+        midx, midy = (x1+x2)/2, (y1+y2)/2
+        dx, dy = x2-x1, y2-y1
+        cx, cy = midx - dy*0.05, midy + dx*0.05
+        out.append(
+            f'<path d="M{x1:.1f},{y1:.1f} Q{cx:.1f},{cy:.1f} {x2:.1f},{y2:.1f}" '
+            f'fill="none" stroke="{stroke}" stroke-width="{sw}" '
+            f'marker-end="url(#{marker})"/>'
+        )
+
+    # ── Nodes
+    for nid, (mx, my) in NP.items():
+        m = NODE_META.get(nid, {})
+        col = TC.get(m.get("type", "constraint"), "#888")
+        p = post.get(nid, 0.5)
+        is_sel = (sel == nid)
+        is_sub = isinstance(nid, str)
+        sx, sy = mpl_to_svg(mx, my)
+
+        if is_sub:
+            bw, bh, id_fs, lbl_fs, pct_fs = 28, 20, 7, 6, 6
+        else:
+            bw, bh = 50, 34
+            id_fs = 11 if (isinstance(nid, int) and nid < 10) else 10
+            lbl_fs, pct_fs = 8, 8
+
+        full_name  = m.get("name", f"N{nid}")
+        type_label = TL.get(m.get("type", ""), "")
+        out.append(f'<g><title>N{nid}: {full_name}\n{type_label}</title>')
+
+        # Box
+        fill = col if is_sel else col + "22"
+        sw_box = 2 if is_sel else 1
+        out.append(
+            f'<rect x="{sx-bw/2:.1f}" y="{sy-bh/2:.1f}" '
+            f'width="{bw}" height="{bh}" rx="4" '
+            f'fill="{fill}" stroke="{col}" stroke-width="{sw_box}"/>'
+        )
+        # ID inside box
+        id_color = "white" if is_sel else col
+        out.append(
+            f'<text x="{sx:.1f}" y="{sy:.1f}" text-anchor="middle" '
+            f'dominant-baseline="central" font-size="{id_fs}" '
+            f'font-weight="700" fill="{id_color}">N{nid}</text>'
+        )
+        # Posterior ring (top-right corner of main nodes only)
+        if not is_sub:
+            rcx, rcy, rr = sx + bw/2 - 5, sy - bh/2 + 5, 5
+            out.append(
+                f'<circle cx="{rcx:.1f}" cy="{rcy:.1f}" r="{rr}" '
+                f'fill="#fafafa" stroke="{col}" stroke-width="0.7" opacity="0.4"/>'
+            )
+            if p > 0.01:
+                if p >= 0.999:
+                    out.append(
+                        f'<circle cx="{rcx:.1f}" cy="{rcy:.1f}" r="{rr-0.5}" '
+                        f'fill="{col}" opacity="0.85"/>'
+                    )
+                else:
+                    angle = 2 * math.pi * p
+                    ex = rcx + (rr-0.5) * math.sin(angle)
+                    ey = rcy - (rr-0.5) * math.cos(angle)
+                    large = 1 if p > 0.5 else 0
+                    out.append(
+                        f'<path d="M{rcx:.1f},{rcy-(rr-0.5):.1f} '
+                        f'A{rr-0.5},{rr-0.5} 0 {large},1 {ex:.2f},{ey:.2f} '
+                        f'L{rcx:.1f},{rcy:.1f} Z" '
+                        f'fill="{col}" opacity="0.85"/>'
+                    )
+        # Below-box label + percentage (main nodes)
+        if "short" in m and not is_sub:
+            short = m["short"]
+            if nid != 1 and len(short) > 14:
+                short = short[:14] + "…"
+            out.append(
+                f'<text x="{sx:.1f}" y="{sy + bh/2 + 11:.1f}" '
+                f'text-anchor="middle" font-size="{lbl_fs}" fill="#555">{short}</text>'
+            )
+            pct_color = _n1_pct_color if nid == 1 else col
+            out.append(
+                f'<text x="{sx:.1f}" y="{sy + bh/2 + 23:.1f}" '
+                f'text-anchor="middle" font-size="{pct_fs}" font-weight="700" '
+                f'fill="{pct_color}" opacity="0.85">{p*100:.0f}%</text>'
+            )
+        elif is_sub:
+            out.append(
+                f'<text x="{sx:.1f}" y="{sy + bh/2 + 8:.1f}" '
+                f'text-anchor="middle" font-size="{pct_fs}" font-weight="700" '
+                f'fill="{col}" opacity="0.85">{p*100:.0f}%</text>'
+            )
+        out.append('</g>')
+
+    # ── Legend (top-right)
+    leg_x, leg_y = sx_right - 200, 24
+    out.append(
+        f'<g font-family="Inter,sans-serif" font-size="8.5">'
+        f'<rect x="{leg_x-10}" y="{leg_y-12}" width="200" '
+        f'height="{len(TL)*14+14}" rx="4" fill="white" '
+        f'stroke="#ddd" opacity="0.95"/>'
+    )
+    for i, (ty, label) in enumerate(TL.items()):
+        c, ly = TC[ty], leg_y + i*14
+        out.append(
+            f'<circle cx="{leg_x}" cy="{ly}" r="4" fill="{c}"/>'
+            f'<text x="{leg_x+10}" y="{ly+3}" fill="#666">{label}</text>'
+        )
+    out.append('</g></svg>')
+    return "".join(out)
+
 # ── CanLII availability ───────────────────────────────────────────────────────
 try:
     from canlii_client import (
@@ -3796,7 +3976,19 @@ with TABS[1]:
         for sub_id in ("18a", "18b", "18c", "18d"):
             opts[sub_id] = f"N{sub_id}: {NODE_META[sub_id]['name']}"
         sel=st.selectbox("Inspect node",list(opts.keys()),format_func=lambda x:opts[x])
-        st.pyplot(draw_dag(P,sel),use_container_width=True)
+        # Mark 8.x preview — SVG renderer toggle. Default on; flip off to
+        # revert to the classic matplotlib draw_dag(). draw_dag() is preserved
+        # untouched in the file; this is a non-destructive feature flag.
+        _use_svg_dag = st.toggle(
+            "SVG renderer (Mark 8.x preview)",
+            value=True,
+            key="use_svg_dag",
+            help="Off reverts to the matplotlib renderer.",
+        )
+        if _use_svg_dag:
+            components.html(render_dag_svg(P, sel), height=720, scrolling=False)
+        else:
+            st.pyplot(draw_dag(P, sel), use_container_width=True)
     with cr:
         if sel:
             m=NODE_META[sel];col=TC[m["type"]];p=P.get(sel,.5)
