@@ -8859,12 +8859,24 @@ with TABS[4]:
             agg_boost = min(agg_boost + _drug_boost.get(cr_drugs_type, 0.06), 1.40)
 
         # Compute calibrated weight for this entry
+        # ── Gardiner ceiling (R v Gardiner [1982] 2 SCR 368) ─────────────────
+        # cal_weight measures how much of the conviction's nominal evidentiary
+        # weight survives production-condition and reliability scrutiny under
+        # the Tetrad. Per Gardiner, aggravators proved at sentencing are at
+        # 100% (proof beyond a reasonable doubt) — there is no probative space
+        # above that threshold. cal_weight is therefore clipped to [0.05, 1.0].
+        # Aggravators continue to carry forward through the seriousness tier
+        # (_ser_map) which is multiplied by cal_weight in the Boutilier
+        # pattern analysis (see lines computing seriousness * cal_weight).
+        # The agg_boost variable is retained on the conviction record for
+        # provenance/display but is NOT applied to cal_weight to avoid
+        # double-counting aggravators (once in _ser_map, once in agg_boost).
         raw_wt = 1.0
         cal_wt = float(np.clip(
-            raw_wt * sent_mod * agg_boost *
+            raw_wt * sent_mod *
             (1 - 0.55*adj_bail) * (1 - 0.40*adj_ewert) *
             (1 - 0.35*adj_police) * (1 - 0.30*adj_gladue) *
-            (1 - 0.25*adj_mm) * (1 - 0.45*adj_time), 0.05, 1.15))
+            (1 - 0.25*adj_mm) * (1 - 0.45*adj_time), 0.05, 1.0))
         pct_ret = cal_wt * 100
 
         col_ret = "#3B6D11" if pct_ret >= 70 else "#BA7517" if pct_ret >= 40 else "#A32D2D"
