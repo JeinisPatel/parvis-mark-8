@@ -2863,7 +2863,6 @@ def render_dag_svg(post, sel=None):
         full_name  = m.get("name", f"N{nid}")
         type_label = TL.get(m.get("type", ""), "")
         out.append(
-            f'<a href="?node=N{nid}" target="_top" style="cursor:pointer">'
             f'<g class="parvis-node">'
             f'<title>N{nid}: {full_name}\n{type_label}</title>'
         )
@@ -2929,7 +2928,7 @@ def render_dag_svg(post, sel=None):
                 f'text-anchor="middle" font-size="{pct_fs}" font-weight="700" '
                 f'fill="{col}" opacity="0.85">{p*100:.0f}%</text>'
             )
-        out.append('</g></a>')
+        out.append('</g>')
 
     # ── Legend (bottom-right, out of the way of N4)
     leg_h = len(TL)*16 + 14
@@ -4015,37 +4014,7 @@ with TABS[1]:
         # §5.1.18 sub-nodes — appended after §5.1.15 sub-nodes
         for sub_id in ("18a", "18b", "18c", "18d"):
             opts[sub_id] = f"N{sub_id}: {NODE_META[sub_id]['name']}"
-
-        # ── Click-to-select bridge (Mark 8.x preview).
-        # render_dag_svg wraps each node in an <a href="?node=N#">. When a
-        # user clicks a node the parent window navigates to that URL, which
-        # triggers a Streamlit rerun. We consume the param here, write it
-        # into the selectbox's session-state key, and remove it so the snap
-        # doesn't repeat on subsequent reruns.
-        # NOTE on tab persistence: native st.tabs may reset to the first tab
-        # on rerun in some Streamlit builds. If clicking a node lands you on
-        # Summary, click Architecture and the selectbox will already reflect
-        # your choice — the state set below survives the tab navigation.
-        _qnode = st.query_params.get("node")
-        if _qnode:
-            _raw = _qnode[1:] if _qnode.startswith("N") else _qnode
-            try:
-                _key = int(_raw)
-            except ValueError:
-                _key = _raw
-            if _key in opts:
-                st.session_state["arch_inspect_node"] = _key
-            try:
-                del st.query_params["node"]
-            except (KeyError, AttributeError):
-                pass
-
-        sel = st.selectbox(
-            "Inspect node",
-            list(opts.keys()),
-            format_func=lambda x: opts[x],
-            key="arch_inspect_node",
-        )
+        sel=st.selectbox("Inspect node",list(opts.keys()),format_func=lambda x:opts[x])
         # Mark 8.x preview — SVG renderer toggle. Default on; flip off to
         # revert to the classic matplotlib draw_dag(). draw_dag() is preserved
         # untouched in the file; this is a non-destructive feature flag.
