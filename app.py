@@ -2748,6 +2748,25 @@ def render_dag_svg(post, sel=None):
         # Matches xlim=(-.06,1.02), ylim=(-.08,1.02) from draw_dag
         return ((mx + 0.06) / 1.08) * W, ((1.02 - my) / 1.10) * H
 
+    def clip_to_box(cx, cy, hw, hh, fx, fy):
+        # Returns the point on the rectangle (centred at cx,cy with half-width
+        # hw, half-height hh) that lies on the line from (fx,fy) toward (cx,cy).
+        # Used to stop edge paths at the box boundary so the arrowhead is
+        # visible instead of being occluded by the target node's fill.
+        dx, dy = cx - fx, cy - fy
+        if dx == 0 and dy == 0:
+            return cx, cy
+        tx = hw / abs(dx) if dx != 0 else float("inf")
+        ty = hh / abs(dy) if dy != 0 else float("inf")
+        t = min(tx, ty, 1.0)
+        return cx - dx * t, cy - dy * t
+
+    def box_dims(nid):
+        # (half-width, half-height) by node type
+        if isinstance(nid, str):  # sub-node
+            return 19, 13
+        return 32, 22
+
     # N1 doctrinal-state colour (mirrors lines ~2689-2694 in draw_dag)
     _n1_state = _n1_doctrinal_state()
     _n1_pct_color = {
@@ -2758,13 +2777,21 @@ def render_dag_svg(post, sel=None):
         f'<svg viewBox="0 0 {W} {H}" width="100%" '
         f'xmlns="http://www.w3.org/2000/svg" '
         f'style="background:#fafafa;font-family:Inter,system-ui,sans-serif">',
+        # Hover effects + smooth transitions
+        '<style>'
+        '.parvis-node { transition: filter 0.15s ease; }'
+        '.parvis-node:hover { filter: drop-shadow(0 1px 4px rgba(0,0,0,0.28)); }'
+        '.parvis-node:hover rect { stroke-width: 2.5; }'
+        '.parvis-node:hover .parvis-id { font-weight: 800; }'
+        '</style>',
+        # Larger arrowhead markers — visible against the layer-band fill
         '<defs>'
         '<marker id="parr-d" viewBox="0 0 10 10" refX="9" refY="5" '
-        'markerWidth="5" markerHeight="5" orient="auto-start-reverse">'
-        '<path d="M0,0 L10,5 L0,10 z" fill="#ccc"/></marker>'
+        'markerWidth="9" markerHeight="9" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" fill="#bbb"/></marker>'
         '<marker id="parr-h" viewBox="0 0 10 10" refX="9" refY="5" '
-        'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
-        '<path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker>'
+        'markerWidth="11" markerHeight="11" orient="auto-start-reverse">'
+        '<path d="M0,0 L10,5 L0,10 z" fill="#666"/></marker>'
         '</defs>',
     ]
 
@@ -2784,23 +2811,28 @@ def render_dag_svg(post, sel=None):
             f'fill="#f0f0f0" opacity="0.55"/>'
         )
         ly = (sy_top + sy_bot) / 2
-        lx = max(sx_left - 24, 14)
+        lx = max(sx_left - 22, 12)
         out.append(
             f'<text x="{lx}" y="{ly}" transform="rotate(-90 {lx} {ly})" '
-            f'text-anchor="middle" font-size="9" font-weight="700" '
-            f'fill="#aaa" letter-spacing="0.06em">{title}'
-            f'<tspan x="{lx}" dy="13" font-weight="400" font-style="italic" '
-            f'font-size="8" fill="#bbb">{subtitle}</tspan></text>'
+            f'text-anchor="middle" font-size="11" font-weight="700" '
+            f'fill="#999" letter-spacing="0.06em">{title}'
+            f'<tspan x="{lx}" dy="15" font-weight="400" font-style="italic" '
+            f'font-size="10" fill="#aaa">{subtitle}</tspan></text>'
         )
 
-    # ── Edges
+    # ── Edges (clipped to box edges so arrowheads are visible)
     for f, t in EDGES:
         if f not in NP or t not in NP:
             continue
-        x1, y1 = mpl_to_svg(*NP[f])
-        x2, y2 = mpl_to_svg(*NP[t])
+        x1c, y1c = mpl_to_svg(*NP[f])
+        x2c, y2c = mpl_to_svg(*NP[t])
+        hw_f, hh_f = box_dims(f)
+        hw_t, hh_t = box_dims(t)
+        # Clip both endpoints to their respective box boundaries
+        x1, y1 = clip_to_box(x1c, y1c, hw_f, hh_f, x2c, y2c)
+        x2, y2 = clip_to_box(x2c, y2c, hw_t, hh_t, x1c, y1c)
         hi = sel is not None and (f == sel or t == sel)
-        stroke, sw = ("#888", 1.2) if hi else ("#ccc", 0.6)
+        stroke, sw = ("#666", 1.6) if hi else ("#bbb", 0.8)
         marker = "parr-h" if hi else "parr-d"
         midx, midy = (x1+x2)/2, (y1+y2)/2
         dx, dy = x2-x1, y2-y1
@@ -2819,56 +2851,61 @@ def render_dag_svg(post, sel=None):
         is_sel = (sel == nid)
         is_sub = isinstance(nid, str)
         sx, sy = mpl_to_svg(mx, my)
+        hw, hh = box_dims(nid)
+        bw, bh = hw*2, hh*2
 
         if is_sub:
-            bw, bh, id_fs, lbl_fs, pct_fs = 28, 20, 7, 6, 6
+            id_fs, lbl_fs, pct_fs = 10, 9, 9
         else:
-            bw, bh = 50, 34
-            id_fs = 11 if (isinstance(nid, int) and nid < 10) else 10
-            lbl_fs, pct_fs = 8, 8
+            id_fs = 15 if (isinstance(nid, int) and nid < 10) else 13
+            lbl_fs, pct_fs = 11, 11
 
         full_name  = m.get("name", f"N{nid}")
         type_label = TL.get(m.get("type", ""), "")
-        out.append(f'<g><title>N{nid}: {full_name}\n{type_label}</title>')
+        out.append(
+            f'<g class="parvis-node">'
+            f'<title>N{nid}: {full_name}\n{type_label}</title>'
+        )
 
         # Box
         fill = col if is_sel else col + "22"
-        sw_box = 2 if is_sel else 1
+        sw_box = 2.5 if is_sel else 1
         out.append(
-            f'<rect x="{sx-bw/2:.1f}" y="{sy-bh/2:.1f}" '
-            f'width="{bw}" height="{bh}" rx="4" '
+            f'<rect x="{sx-hw:.1f}" y="{sy-hh:.1f}" '
+            f'width="{bw}" height="{bh}" rx="5" '
             f'fill="{fill}" stroke="{col}" stroke-width="{sw_box}"/>'
         )
         # ID inside box
         id_color = "white" if is_sel else col
         out.append(
-            f'<text x="{sx:.1f}" y="{sy:.1f}" text-anchor="middle" '
-            f'dominant-baseline="central" font-size="{id_fs}" '
-            f'font-weight="700" fill="{id_color}">N{nid}</text>'
+            f'<text class="parvis-id" x="{sx:.1f}" y="{sy:.1f}" '
+            f'text-anchor="middle" dominant-baseline="central" '
+            f'font-size="{id_fs}" font-weight="700" fill="{id_color}">'
+            f'N{nid}</text>'
         )
         # Posterior ring (top-right corner of main nodes only)
         if not is_sub:
-            rcx, rcy, rr = sx + bw/2 - 5, sy - bh/2 + 5, 5
+            rcx, rcy, rr = sx + hw - 7, sy - hh + 7, 6
             out.append(
                 f'<circle cx="{rcx:.1f}" cy="{rcy:.1f}" r="{rr}" '
-                f'fill="#fafafa" stroke="{col}" stroke-width="0.7" opacity="0.4"/>'
+                f'fill="#fafafa" stroke="{col}" stroke-width="0.8" opacity="0.5"/>'
             )
             if p > 0.01:
                 if p >= 0.999:
                     out.append(
-                        f'<circle cx="{rcx:.1f}" cy="{rcy:.1f}" r="{rr-0.5}" '
-                        f'fill="{col}" opacity="0.85"/>'
+                        f'<circle cx="{rcx:.1f}" cy="{rcy:.1f}" r="{rr-0.7}" '
+                        f'fill="{col}" opacity="0.9"/>'
                     )
                 else:
                     angle = 2 * math.pi * p
-                    ex = rcx + (rr-0.5) * math.sin(angle)
-                    ey = rcy - (rr-0.5) * math.cos(angle)
+                    ex = rcx + (rr-0.7) * math.sin(angle)
+                    ey = rcy - (rr-0.7) * math.cos(angle)
                     large = 1 if p > 0.5 else 0
                     out.append(
-                        f'<path d="M{rcx:.1f},{rcy-(rr-0.5):.1f} '
-                        f'A{rr-0.5},{rr-0.5} 0 {large},1 {ex:.2f},{ey:.2f} '
+                        f'<path d="M{rcx:.1f},{rcy-(rr-0.7):.1f} '
+                        f'A{rr-0.7},{rr-0.7} 0 {large},1 {ex:.2f},{ey:.2f} '
                         f'L{rcx:.1f},{rcy:.1f} Z" '
-                        f'fill="{col}" opacity="0.85"/>'
+                        f'fill="{col}" opacity="0.9"/>'
                     )
         # Below-box label + percentage (main nodes)
         if "short" in m and not is_sub:
@@ -2876,36 +2913,38 @@ def render_dag_svg(post, sel=None):
             if nid != 1 and len(short) > 14:
                 short = short[:14] + "…"
             out.append(
-                f'<text x="{sx:.1f}" y="{sy + bh/2 + 11:.1f}" '
-                f'text-anchor="middle" font-size="{lbl_fs}" fill="#555">{short}</text>'
+                f'<text x="{sx:.1f}" y="{sy + hh + 13:.1f}" '
+                f'text-anchor="middle" font-size="{lbl_fs}" fill="#444">{short}</text>'
             )
             pct_color = _n1_pct_color if nid == 1 else col
             out.append(
-                f'<text x="{sx:.1f}" y="{sy + bh/2 + 23:.1f}" '
+                f'<text x="{sx:.1f}" y="{sy + hh + 27:.1f}" '
                 f'text-anchor="middle" font-size="{pct_fs}" font-weight="700" '
                 f'fill="{pct_color}" opacity="0.85">{p*100:.0f}%</text>'
             )
         elif is_sub:
             out.append(
-                f'<text x="{sx:.1f}" y="{sy + bh/2 + 8:.1f}" '
+                f'<text x="{sx:.1f}" y="{sy + hh + 10:.1f}" '
                 f'text-anchor="middle" font-size="{pct_fs}" font-weight="700" '
                 f'fill="{col}" opacity="0.85">{p*100:.0f}%</text>'
             )
         out.append('</g>')
 
-    # ── Legend (top-right)
-    leg_x, leg_y = sx_right - 200, 24
+    # ── Legend (bottom-right, out of the way of N4)
+    leg_h = len(TL)*16 + 14
+    leg_x = sx_right - 210
+    leg_y = H - leg_h - 10
     out.append(
-        f'<g font-family="Inter,sans-serif" font-size="8.5">'
-        f'<rect x="{leg_x-10}" y="{leg_y-12}" width="200" '
-        f'height="{len(TL)*14+14}" rx="4" fill="white" '
+        f'<g font-family="Inter,sans-serif" font-size="10">'
+        f'<rect x="{leg_x-10}" y="{leg_y-8}" width="210" '
+        f'height="{leg_h}" rx="4" fill="white" '
         f'stroke="#ddd" opacity="0.95"/>'
     )
     for i, (ty, label) in enumerate(TL.items()):
-        c, ly = TC[ty], leg_y + i*14
+        c, ly = TC[ty], leg_y + 6 + i*16
         out.append(
-            f'<circle cx="{leg_x}" cy="{ly}" r="4" fill="{c}"/>'
-            f'<text x="{leg_x+10}" y="{ly+3}" fill="#666">{label}</text>'
+            f'<circle cx="{leg_x}" cy="{ly}" r="5" fill="{c}"/>'
+            f'<text x="{leg_x+12}" y="{ly+4}" fill="#555">{label}</text>'
         )
     out.append('</g></svg>')
     return "".join(out)
@@ -3986,7 +4025,7 @@ with TABS[1]:
             help="Off reverts to the matplotlib renderer.",
         )
         if _use_svg_dag:
-            components.html(render_dag_svg(P, sel), height=720, scrolling=False)
+            components.html(render_dag_svg(P, sel), height=820, scrolling=False)
         else:
             st.pyplot(draw_dag(P, sel), use_container_width=True)
     with cr:
