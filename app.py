@@ -8968,12 +8968,50 @@ with TABS[4]:
         # The agg_boost variable is retained on the conviction record for
         # provenance/display but is NOT applied to cal_weight to avoid
         # double-counting aggravators (once in _ser_map, once in agg_boost).
+
+        # ── N6 (IAC) standalone effect on cal_weight — Mark 8 push 1.5 ───────
+        # N6 is doctrinally bivalent. It conditions N7 (bail-denial cascade)
+        # additively per §RM.6.6 — preserved unchanged in the existing
+        # _n6_grade_for_conviction → _n6_boost_for_conviction pipeline.
+        # It also operates *in its own right* on the conviction's evidentiary
+        # weight: per R v GDB 2000 SCC 22, IAC compromises the conviction as
+        # a record of culpable conduct independent of any bail-denial
+        # coercion. The five flags therefore also produce a discount on
+        # cal_weight, with the magnitude attenuated when bail-denial is
+        # active to avoid double-counting the production-condition concern
+        # that the N7 cascade already captures.
+        #
+        # Calibration:
+        #   - 0.05 per sub-threshold indicator (max 0.20 for all four)
+        #   - 0.20 additional discount for the GDB constitutional flag
+        #   - max combined: 0.40 (all four + GDB, no bail-denial)
+        #   - attenuation: halved (×0.5) when bail-denial fully active,
+        #     scaling linearly with adj_bail to preserve §RM.6.6 protection.
+        #   - GDB flag stands alone: it produces its 0.20 discount even
+        #     without sub-threshold indicators, reflecting that the
+        #     constitutional finding may rest on grounds the four
+        #     indicators do not capture (e.g. Wong-style failure to
+        #     advise on plea).
+        n6_indicator_count = sum([
+            bool(adj_n6_no_sce),
+            bool(adj_n6_inadequate_counsel),
+            bool(adj_n6_judicial_criticism),
+            bool(adj_n6_disproportionate),
+        ])
+        n6_discount_strength = (
+            0.05 * n6_indicator_count
+            + 0.20 * (1.0 if adj_n6_gdb_threshold_met else 0.0)
+        )
+        n6_discount_attenuation = 1.0 - 0.5 * adj_bail
+        n6_factor = 1.0 - n6_discount_strength * n6_discount_attenuation
+
         raw_wt = 1.0
         cal_wt = float(np.clip(
             raw_wt * sent_mod *
             (1 - 0.55*adj_bail) * (1 - 0.40*adj_ewert) *
             (1 - 0.35*adj_police) * (1 - 0.30*adj_gladue) *
-            (1 - 0.25*adj_mm) * (1 - 0.45*adj_time), 0.05, 1.0))
+            (1 - 0.25*adj_mm) * (1 - 0.45*adj_time) *
+            n6_factor, 0.05, 1.0))
         pct_ret = cal_wt * 100
 
         col_ret = "#3B6D11" if pct_ret >= 70 else "#BA7517" if pct_ret >= 40 else "#A32D2D"
