@@ -250,7 +250,11 @@ def rb(p):
     return "Very high","#A32D2D","#FCEBEB"
 
 def dobar(p, label="DO designation risk", show_cr=False):
-    bl,bc,bg = rb(p)
+    # Mark 8 push ten — band-by-default. Decimal subordinate when toggle ON,
+    # absent when toggle OFF. Same Lifchus rationale as Summary/Intake/spine
+    # readouts. See N20_BANDS_RATIONALE_HTML on Architecture tab.
+    band_lbl, bc, bg = band_for_n20(p)
+    show_num = show_numeric_posteriors()
     # Build criminal record contribution badge if requested
     cr_badge = ""
     if show_cr and "criminal_record" in st.session_state:
@@ -271,15 +275,34 @@ def dobar(p, label="DO designation risk", show_cr=False):
                 f"{f'  ·  <span style="color:#555">{esc_icon} {esc_pat.title()} pattern (Boutilier)</span>' if esc_pat else ''}"
                 f"</div>"
             )
+    # Left column: band-led readout. Decimal renders subordinate only when
+    # toggle ON. Right column: progress bar + label + cr badge (unchanged).
+    if show_num:
+        left_col = (
+            f'<div style="text-align:center;min-width:160px">'
+            f'<div style="font-size:.7rem;color:{bc};margin-bottom:2px">Node 20</div>'
+            f'<div style="font-family:Fraunces,Georgia,serif;font-size:1rem;'
+            f'font-weight:500;color:{bc};line-height:1.2">{band_lbl}</div>'
+            f'<div style="font-family:monospace;font-size:1.2rem;'
+            f'font-weight:600;color:{bc};opacity:0.7;margin-top:4px">{p*100:.1f}%</div>'
+            f'</div>'
+        )
+    else:
+        left_col = (
+            f'<div style="text-align:center;min-width:160px">'
+            f'<div style="font-size:.7rem;color:{bc};margin-bottom:4px">Node 20</div>'
+            f'<div style="font-family:Fraunces,Georgia,serif;font-size:1.05rem;'
+            f'font-weight:500;color:{bc};line-height:1.25">{band_lbl}</div>'
+            f'<div style="font-family:Fraunces,serif;font-style:italic;'
+            f'font-size:.66rem;color:{bc};opacity:0.7;margin-top:4px">'
+            f'doctrinal posture</div>'
+            f'</div>'
+        )
     return f"""<div style="background:{bg};border:1px solid {bc}44;border-radius:12px;
     padding:.8rem 1.2rem;margin-bottom:1rem;display:flex;align-items:center;gap:1.5rem">
-    <div style="text-align:center;min-width:80px">
-      <div style="font-size:.7rem;color:{bc};margin-bottom:2px">Node 20</div>
-      <div style="font-size:2rem;font-weight:700;font-family:monospace;color:{bc}">{p*100:.1f}%</div>
-      <div style="font-size:.8rem;font-weight:600;color:{bc}">{bl}</div>
-    </div>
+    {left_col}
     <div style="flex:1">
-      <div style="font-size:.82rem;font-weight:500;margin-bottom:6px">{label} — posterior probability</div>
+      <div style="font-size:.82rem;font-weight:500;margin-bottom:6px">{label}</div>
       <div style="height:5px;background:rgba(0,0,0,.08);border-radius:3px">
         <div style="width:{p*100:.0f}%;height:100%;background:{bc};border-radius:3px"></div>
       </div>
