@@ -3144,136 +3144,7 @@ def render_dag_spine_svg(post):
     return "".join(out)
 
 
-# ── Mini Bloch sphere (Mark 8 push nine — sandbox preview) ───────────────────
-# Static, single-frame 200×200 canvas-based Bloch sphere for the spine.
-# No animation loop (eliminates rendering cost on every script rerun).
-# Strips axis labels to icons-only ("R" / "M") at this scale.
-# Reuses the proj() and draw() logic from the Quantum tab's full canvas.
-def render_mini_bloch_html(theta_rad: float, phi_rad: float,
-                            p_high: float, si: float,
-                            rw: float, mw: float) -> str:
-    """
-    Returns an HTML string with an inline <canvas> + JS that renders a
-    static (non-animating) Bloch sphere sized 200×200. The state vector
-    points to (theta_rad, phi_rad). Drawn once on script load.
-    """
-    import json as _json
-    state_js = _json.dumps({
-        "theta": float(theta_rad),
-        "phi":   float(phi_rad),
-        "risk":  float(p_high),
-        "si":    float(si),
-        "rw":    float(rw),
-        "mw":    float(mw),
-    })
-    return f"""
-<canvas id="parvis-mini-bloch" width="200" height="200"
-  style="border-radius:6px;background:white;border:1px solid #E0DDD6;
-         display:block;margin:6px auto"></canvas>
-<div style="font-family:'JetBrains Mono',monospace;font-size:7px;
-            color:#888;text-align:center;letter-spacing:0.06em;
-            margin-top:2px">
-  QBism · belief state |ψ⟩
-</div>
-<script>
-(function(){{
-  const S = {state_js};
-  const canvas = document.getElementById("parvis-mini-bloch");
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  const W=200, H=200, cx=100, cy=100, R=72;
-  const C_RISK = "#C0392B", C_MIT = "#1A6B35", C_POLE = "#1B2A4A";
-  const riskCol = S.risk>=0.55 ? "#C0392B" : S.risk>=0.35 ? "#B8850A" : "#1A6B35";
-
-  function proj(x,y,z,ry,rx) {{
-    let x1 = x*Math.cos(ry) - z*Math.sin(ry);
-    let y1 = y;
-    let z1 = x*Math.sin(ry) + z*Math.cos(ry);
-    let x2 = x1;
-    let y2 = y1*Math.cos(rx) - z1*Math.sin(rx);
-    let z2 = y1*Math.sin(rx) + z1*Math.cos(rx);
-    const f = 3.2;
-    return [cx + x2*R*f/(f+z2+2), cy - y2*R*f/(f+z2+2), z2];
-  }}
-
-  // Single static frame — view angles fixed for clarity
-  const ry = 0.5, rx = 0.25;
-  ctx.clearRect(0,0,W,H);
-
-  // Sphere fill
-  const g = ctx.createRadialGradient(cx-22,cy-22,8,cx,cy,R+4);
-  g.addColorStop(0,"rgba(205,215,230,0.45)");
-  g.addColorStop(1,"rgba(238,241,248,0.10)");
-  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
-  ctx.fillStyle=g; ctx.fill();
-  ctx.strokeStyle="rgba(0,0,0,0.18)"; ctx.lineWidth=1; ctx.stroke();
-
-  // Equator only
-  ctx.beginPath(); let fi=true;
-  for(let a=0;a<=360;a+=6){{
-    const r=a*Math.PI/180;
-    const [sx,sy]=proj(Math.cos(r),0,Math.sin(r),ry,rx);
-    fi?(ctx.moveTo(sx,sy),fi=false):ctx.lineTo(sx,sy);
-  }}
-  ctx.closePath();
-  ctx.strokeStyle="rgba(0,0,0,0.20)"; ctx.lineWidth=0.9; ctx.stroke();
-
-  // Vertical pole axis
-  const [ap1,ap2]=proj(0,1,0,ry,rx);
-  const [an1,an2]=proj(0,-1,0,ry,rx);
-  ctx.beginPath(); ctx.moveTo(ap1,ap2); ctx.lineTo(an1,an2);
-  ctx.strokeStyle=C_POLE+"55"; ctx.lineWidth=0.8;
-  ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
-
-  // Equator axis terminators (icons only — R / M)
-  const [rx1,ry1]=proj(0.95,0,0,ry,rx);
-  const [mx1,my1]=proj(-0.95,0,0,ry,rx);
-  ctx.fillStyle=C_RISK; ctx.font="bold 8px monospace";
-  ctx.fillText("R", rx1+2, ry1+3);
-  ctx.fillStyle=C_MIT;
-  ctx.fillText("M", mx1-9, my1+3);
-
-  // State vector
-  const th=S.theta, ph=S.phi;
-  const svx=Math.sin(th)*Math.cos(ph);
-  const svy=Math.cos(th);
-  const svz=Math.sin(th)*Math.sin(ph);
-  const [ovx,ovy]=proj(0,0,0,ry,rx);
-  const [vpx,vpy]=proj(svx*0.92,svy*0.92,svz*0.92,ry,rx);
-
-  ctx.beginPath(); ctx.moveTo(ovx,ovy); ctx.lineTo(vpx,vpy);
-  ctx.strokeStyle=riskCol; ctx.lineWidth=2.4; ctx.stroke();
-
-  // Arrowhead
-  const ang=Math.atan2(vpy-ovy,vpx-ovx);
-  ctx.beginPath();
-  ctx.moveTo(vpx,vpy);
-  ctx.lineTo(vpx-7*Math.cos(ang-0.4),vpy-7*Math.sin(ang-0.4));
-  ctx.lineTo(vpx-7*Math.cos(ang+0.4),vpy-7*Math.sin(ang+0.4));
-  ctx.closePath(); ctx.fillStyle=riskCol; ctx.fill();
-
-  // Equatorial superposition ring (only if pre-decisional ambiguity is high)
-  if(S.si > 0.6) {{
-    ctx.beginPath(); let fi3=true;
-    for(let a=0;a<=360;a+=6) {{
-      const r=a*Math.PI/180;
-      const [sx,sy]=proj(Math.cos(r),0,Math.sin(r),ry,rx);
-      fi3?(ctx.moveTo(sx,sy),fi3=false):ctx.lineTo(sx,sy);
-    }}
-    ctx.closePath();
-    ctx.strokeStyle="#B8850A55"; ctx.lineWidth=1.2;
-    ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
-  }}
-
-  // Centre dot
-  ctx.beginPath(); ctx.arc(cx,cy,2,0,Math.PI*2);
-  ctx.fillStyle="#bbb"; ctx.fill();
-}})();
-</script>
-"""
-
-
-# ── Sticky-spine CSS (Mark 8 push nine + push ten preview) ───────────────────
+# ── Sticky-spine CSS (Mark 8 push nine) ──────────────────────────────────────
 # Two CSS blocks because components.html creates an isolated iframe:
 # (1) Parent-level — applied via st.markdown to push main content left and
 #     reposition the components.html iframe to fixed-right.
@@ -3281,96 +3152,37 @@ def render_mini_bloch_html(theta_rad: float, phi_rad: float,
 #     own contents (collapse handle, mini-Bloch caption).
 # Targeting the iframe by [height="900"] is brittle — if the spine height
 # changes, the selector must be updated. Acceptable for sandbox.
-SPINE_PARENT_CSS = """
+SPINE_FIXED_CSS = """
 <style>
 @media (max-width: 1100px) {
-    iframe[title="streamlit_components.v1.html.html"][height="900"] {
-        display: none !important;
-    }
+    .parvis-spine-fixed { display: none !important; }
 }
 @media (min-width: 1101px) {
     .main .block-container,
     section[data-testid="stMain"] .block-container {
         max-width: calc(100% - 260px) !important;
         margin-right: 250px !important;
-        transition: max-width 0.25s ease, margin-right 0.25s ease;
-    }
-    iframe[title="streamlit_components.v1.html.html"][height="900"] {
-        position: fixed !important;
-        top: 4rem !important;
-        right: 1rem !important;
-        width: 246px !important;
-        z-index: 100 !important;
-        border: none !important;
-        background: transparent !important;
     }
 }
-</style>
-"""
-
-SPINE_IFRAME_CSS = """
-<style>
-body { margin: 0; padding: 0; background: transparent; }
-.parvis-spine-details { margin: 0; padding: 0; }
-.parvis-spine-details > summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 4px 6px 6px 0;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    color: #888;
-    user-select: none;
+.parvis-spine-fixed {
+    position: fixed;
+    top: 4rem;
+    right: 1rem;
+    width: 230px;
+    z-index: 100;
+    pointer-events: auto;
 }
-.parvis-spine-details > summary::-webkit-details-marker { display: none; }
-.parvis-spine-details > summary .chev::before { content: "❮ collapse"; }
-.parvis-spine-details[open] > summary .chev::before { content: "collapse ❯"; }
-.parvis-spine-details:not([open]) .parvis-spine-body { display: none; }
 </style>
 """
 
 def render_spine_floating():
-    """
-    Render the live DAG spine + mini Bloch sphere as a floating fixed-position
-    panel on the right edge. Parent-level CSS pushes main content over and
-    fix-positions the components.html iframe; iframe-internal CSS handles the
-    collapse handle and mini-Bloch caption.
-    """
-    # Parent CSS injection (idempotent across reruns)
-    st.markdown(SPINE_PARENT_CSS, unsafe_allow_html=True)
-
-    # Mini Bloch state computation
-    P_local = st.session_state.posteriors
-    p_high_n20 = float(P_local.get(20, 0.249))
-    rw_local = sum(P_local.get(n, .5) for n in [2, 3, 4, 18]) / 4
-    mw_local = sum(P_local.get(n, .5) for n in [5, 6, 10, 12, 14]) / 5
-    # Same canvas convention as the Quantum tab full sphere
-    theta_rad = float(np.arccos(np.clip(1 - 2*p_high_n20, -1, 1)))
-    phi_rad = float(np.arctan2(rw_local, mw_local))
-    # SI heuristic — proxy for pre-decisional ambiguity (the equatorial
-    # superposition ring). Quantum tab computes a richer si; this is a fast
-    # approximation for the spine visual only.
-    si_local = 1.0 - abs(2 * p_high_n20 - 1)
-
+    """Render the live DAG spine as a floating fixed-position panel."""
     spine_html = (
-        '<details class="parvis-spine-details" open>'
-        '<summary><span class="chev"></span></summary>'
-        '<div class="parvis-spine-body">'
-        f'{render_dag_spine_svg(P_local)}'
-        '<div style="margin-top:8px">'
-        f'{render_mini_bloch_html(theta_rad, phi_rad, p_high_n20, si_local, rw_local, mw_local)}'
-        '</div>'
-        '</div>'
-        '</details>'
+        f'<div class="parvis-spine-fixed">'
+        f'{render_dag_spine_svg(st.session_state.posteriors)}'
+        f'</div>'
     )
-    # height=900 must match the parent CSS selector exactly.
-    components.html(
-        f'{SPINE_IFRAME_CSS}{spine_html}',
-        height=900,
-        scrolling=False,
-    )
+    st.markdown(spine_html, unsafe_allow_html=True)
 
 
 # ── CanLII availability ───────────────────────────────────────────────────────
@@ -3414,6 +3226,7 @@ if "show_dag_spine" not in st.session_state:
     st.session_state.show_dag_spine = True
 
 if st.session_state.show_dag_spine:
+    st.markdown(SPINE_FIXED_CSS, unsafe_allow_html=True)
     render_spine_floating()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
