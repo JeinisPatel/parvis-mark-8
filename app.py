@@ -2982,7 +2982,7 @@ NP_SPINE = {
 # the bottom N20 readout to render inside the spine SVG.
 # Spine viewBox sized for a 230px-wide column. Height = DAG region (530)
 # + N20 readout (60) + Bloch (200) + margins (80).
-SPINE_W, SPINE_H = 230, 870
+SPINE_W, SPINE_H = 230, 620
 SPINE_DAG_H = 540  # vertical region reserved for the DAG itself
 
 def render_dag_spine_svg(post):
@@ -3163,77 +3163,77 @@ def render_dag_spine_svg(post):
             f'doctrinal posture — not a probability</text>'
         )
 
-    # ── Mini Bloch sphere (Mark 8 push nine.e — pure SVG, no script) ─────────
-    # Reuses the Quantum tab's projection convention but renders as static
-    # SVG inside the same parent SVG block. Empty state: dim the sphere and
-    # the state-vector cone, render the prior position in muted grey.
-    bl_cx, bl_cy = SPINE_W / 2, SPINE_DAG_H + 8 + rd_h + 110
+    out.append('</svg>')
+    return "".join(out)
+
+
+def render_bloch_spine_svg(post):
+    """
+    Standalone SVG Bloch sphere sized for the spine's expandable panel.
+    Reuses the Quantum tab's projection convention. Empty-state-aware:
+    when no case has been entered, vector renders muted grey and the
+    pre-decisional ambiguity ring is suppressed.
+    """
+    BL_W, BL_H = 230, 220
+    bl_cx, bl_cy = BL_W / 2, BL_H / 2 + 8
     bl_R = 75
-    # State vector angles
+
+    p20 = post.get(20, 0.249)
+    is_empty = _case_is_empty()
     rw_local = sum(post.get(n, .5) for n in [2, 3, 4, 18]) / 4
     mw_local = sum(post.get(n, .5) for n in [5, 6, 10, 12, 14]) / 5
-    # Match Quantum tab convention
     p_clamped = max(-1.0, min(1.0, 1 - 2 * p20))
     theta = math.acos(p_clamped)
     phi = math.atan2(rw_local, mw_local)
-    # Static viewing angles
     ry, rx = 0.5, 0.25
 
-    def bloch_proj(x, y, z):
-        # Y-axis rotation (azimuthal)
+    def proj(x, y, z):
         x1 = x * math.cos(ry) - z * math.sin(ry)
         y1 = y
         z1 = x * math.sin(ry) + z * math.cos(ry)
-        # X-axis rotation (polar tilt)
         x2 = x1
         y2 = y1 * math.cos(rx) - z1 * math.sin(rx)
         z2 = y1 * math.sin(rx) + z1 * math.cos(rx)
-        # Perspective projection
         f = 3.2
         return (bl_cx + x2 * bl_R * f / (f + z2 + 2),
                 bl_cy - y2 * bl_R * f / (f + z2 + 2))
 
-    # Bloch container box
-    out.append(
-        f'<rect x="{rd_x}" y="{rd_y + rd_h + 8}" '
-        f'width="{rd_w}" height="220" rx="6" '
-        f'fill="white" stroke="#E0DDD6" stroke-width="1"/>'
-    )
-    out.append(
-        f'<text x="{rd_x+rd_w/2:.0f}" y="{rd_y + rd_h + 24}" text-anchor="middle" '
-        f'font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" '
-        f'fill="#888" letter-spacing="0.06em">QBism · belief state |ψ⟩</text>'
-    )
+    out = [
+        f'<svg viewBox="0 0 {BL_W} {BL_H}" width="100%" '
+        f'xmlns="http://www.w3.org/2000/svg" '
+        f'style="background:white;border:1px solid #E0DDD6;border-radius:6px;'
+        f'display:block">'
+    ]
 
-    # Sphere outline (great circle from current view)
+    # Sphere outline
     out.append(
         f'<circle cx="{bl_cx:.1f}" cy="{bl_cy:.1f}" r="{bl_R}" '
         f'fill="rgba(220,225,235,0.18)" stroke="#999" stroke-width="0.8"/>'
     )
 
-    # Equator — projected from points around (cos(a), 0, sin(a))
+    # Equator
     eq_pts = []
     for a_deg in range(0, 361, 6):
         a = math.radians(a_deg)
-        ex, ey = bloch_proj(math.cos(a), 0, math.sin(a))
+        ex, ey = proj(math.cos(a), 0, math.sin(a))
         eq_pts.append(f"{ex:.1f},{ey:.1f}")
     out.append(
         f'<polyline points="{" ".join(eq_pts)}" '
         f'fill="none" stroke="#666" stroke-width="0.7" opacity="0.55"/>'
     )
 
-    # Pole axis (north–south)
-    npx, npy = bloch_proj(0, 1, 0)
-    spx, spy = bloch_proj(0, -1, 0)
+    # Pole axis
+    npx, npy = proj(0, 1, 0)
+    spx, spy = proj(0, -1, 0)
     out.append(
         f'<line x1="{npx:.1f}" y1="{npy:.1f}" '
         f'x2="{spx:.1f}" y2="{spy:.1f}" '
         f'stroke="#1B2A4A" stroke-width="0.7" stroke-dasharray="3 3" opacity="0.45"/>'
     )
 
-    # R / M axis terminator labels (icons only at this scale)
-    rxp, ryp = bloch_proj(0.95, 0, 0)
-    mxp, myp = bloch_proj(-0.95, 0, 0)
+    # R / M terminators
+    rxp, ryp = proj(0.95, 0, 0)
+    mxp, myp = proj(-0.95, 0, 0)
     out.append(
         f'<text x="{rxp+3:.1f}" y="{ryp+3:.1f}" '
         f'font-family="monospace" font-size="8" font-weight="700" '
@@ -3245,25 +3245,23 @@ def render_dag_spine_svg(post):
         f'fill="#1A6B35">M</text>'
     )
 
-    # State vector — colour by risk level (or muted grey when empty)
+    # State vector
     if is_empty:
-        vec_col = "#BBBBBB"
-        vec_op  = 0.55
+        vec_col, vec_op = "#BBBBBB", 0.55
     else:
         vec_col = "#C0392B" if p20 >= 0.55 else "#B8850A" if p20 >= 0.35 else "#1A6B35"
-        vec_op  = 1.0
+        vec_op = 1.0
     svx = math.sin(theta) * math.cos(phi)
     svy = math.cos(theta)
     svz = math.sin(theta) * math.sin(phi)
-    ovx, ovy = bloch_proj(0, 0, 0)
-    vpx, vpy = bloch_proj(svx * 0.92, svy * 0.92, svz * 0.92)
+    ovx, ovy = proj(0, 0, 0)
+    vpx, vpy = proj(svx * 0.92, svy * 0.92, svz * 0.92)
     out.append(
         f'<line x1="{ovx:.1f}" y1="{ovy:.1f}" '
         f'x2="{vpx:.1f}" y2="{vpy:.1f}" '
         f'stroke="{vec_col}" stroke-width="2.2" opacity="{vec_op}" '
         f'stroke-linecap="round"/>'
     )
-    # Arrowhead
     ang = math.atan2(vpy - ovy, vpx - ovx)
     ah1x = vpx - 7 * math.cos(ang - 0.4)
     ah1y = vpy - 7 * math.sin(ang - 0.4)
@@ -3274,32 +3272,22 @@ def render_dag_spine_svg(post):
         f'{ah1x:.1f},{ah1y:.1f} {ah2x:.1f},{ah2y:.1f}" '
         f'fill="{vec_col}" opacity="{vec_op}"/>'
     )
-
-    # Centre dot
     out.append(
         f'<circle cx="{ovx:.1f}" cy="{ovy:.1f}" r="1.8" fill="#999"/>'
     )
 
-    # Pre-decisional ambiguity ring (if equally split posterior — empty-state-aware)
+    # Pre-decisional ambiguity ring
     si_local = 1.0 - abs(2 * p20 - 1)
     if si_local > 0.6 and not is_empty:
         ring_pts = []
         for a_deg in range(0, 361, 6):
             a = math.radians(a_deg)
-            ex, ey = bloch_proj(math.cos(a), 0, math.sin(a))
+            ex, ey = proj(math.cos(a), 0, math.sin(a))
             ring_pts.append(f"{ex:.1f},{ey:.1f}")
         out.append(
             f'<polyline points="{" ".join(ring_pts)}" '
             f'fill="none" stroke="#B8850A" stroke-width="1.5" '
             f'stroke-dasharray="4 4" opacity="0.6"/>'
-        )
-
-    # Empty-state caption inside Bloch box
-    if is_empty:
-        out.append(
-            f'<text x="{rd_x+rd_w/2:.0f}" y="{rd_y + rd_h + 220}" text-anchor="middle" '
-            f'font-family="Fraunces,serif" font-style="italic" '
-            f'font-size="7.5" fill="#999">prior — no case data</text>'
         )
 
     out.append('</svg>')
@@ -3334,14 +3322,56 @@ SPINE_FIXED_CSS = """
     z-index: 100;
     pointer-events: auto;
 }
+
+/* ── Click-to-expand Bloch toggle (Mark 8 push nine.f) ─────────────────── */
+.parvis-spine-bloch-toggle {
+    margin-top: 8px;
+    border: 1px solid #E0DDD6;
+    border-radius: 6px;
+    background: #FBFAF7;
+    padding: 0;
+}
+.parvis-spine-bloch-toggle > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #888;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    user-select: none;
+    transition: color 0.15s ease;
+}
+.parvis-spine-bloch-toggle > summary:hover { color: #555; }
+.parvis-spine-bloch-toggle > summary::-webkit-details-marker { display: none; }
+.parvis-spine-bloch-toggle[open] > summary {
+    border-bottom: 1px solid #E0DDD6;
+}
+.parvis-spine-bloch-toggle[open] > summary::after { content: "  ↓"; }
 </style>
 """
 
 def render_spine_floating():
-    """Render the live DAG spine as a floating fixed-position panel."""
+    """
+    Render the live DAG spine + click-to-expand Bloch sphere as a floating
+    fixed-position panel on the right edge.
+
+    The DAG + N20 readout always render. The Bloch sphere lives inside a
+    <details> element — collapsed by default, click to expand inline.
+    Pure HTML/CSS — no Streamlit rerun on toggle.
+    """
+    P_local = st.session_state.posteriors
     spine_html = (
         f'<div class="parvis-spine-fixed">'
-        f'{render_dag_spine_svg(st.session_state.posteriors)}'
+        f'{render_dag_spine_svg(P_local)}'
+        f'<details class="parvis-spine-bloch-toggle">'
+        f'<summary>QBism · belief state →</summary>'
+        f'<div style="margin-top:6px">'
+        f'{render_bloch_spine_svg(P_local)}'
+        f'</div>'
+        f'</details>'
         f'</div>'
     )
     st.markdown(spine_html, unsafe_allow_html=True)
