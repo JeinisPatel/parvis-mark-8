@@ -2960,27 +2960,21 @@ def render_dag_svg(post, sel=None):
 # wrapper. If sticky misbehaves, the spine still works — it just scrolls with
 # tab content rather than pinning. (See JP push-nine acceptance.)
 
-# Vertical-spine layout. Columns x ∈ {0.16, 0.50, 0.84} for main nodes;
-# sub-clusters compressed horizontally beside their parents.
+# Vertical-spine layout. Main nodes only — sub-nodes are visible in the full
+# Architecture tab DAG. At 230px width, sub-clusters can't clear each other
+# at the §5.1.14/15/17/18 spreads; the spine's job is at-a-glance live state,
+# not detailed enumeration.
 # Y-coordinates roughly mirror NP: Layer I top, Layer III bottom.
 NP_SPINE = {
-    # Layer I — top row (y high in mpl → small in SVG)
+    # Layer I — top row
     1: (0.50, 0.92), 2: (0.16, 0.83), 3: (0.50, 0.83), 4: (0.84, 0.83),
-    # Layer II — main grid
+    # Layer II — main grid (y-values spread evenly between 0.72 and 0.32)
     5: (0.16, 0.72), 6: (0.50, 0.72), 9: (0.84, 0.72),
     7: (0.16, 0.62), 10:(0.50, 0.62), 11:(0.84, 0.62),
     8: (0.16, 0.52), 12:(0.50, 0.52), 13:(0.84, 0.52),
     14:(0.16, 0.42), 15:(0.50, 0.42), 16:(0.84, 0.42),
     17:(0.16, 0.32), 18:(0.50, 0.32), 19:(0.84, 0.32),
-    # Layer II sub-nodes — tight clusters; only the §5.1.14 / 5.1.15 / 5.1.18
-    # spreads are needed for readability at this scale, others omitted.
-    "14a":(0.06, 0.46), "14b":(0.06, 0.42), "14c":(0.06, 0.38),
-    "15a":(0.40, 0.46), "15b":(0.40, 0.42), "15c":(0.40, 0.38), "15d":(0.40, 0.34),
-    "17a":(0.06, 0.36), "17b":(0.06, 0.32), "17c":(0.06, 0.28),
-    "18a":(0.40, 0.36), "18b":(0.40, 0.32), "18c":(0.40, 0.28), "18d":(0.40, 0.24),
-    # 14d, 17d included for completeness on the spine
-    "14d":(0.06, 0.40), "17d":(0.06, 0.30),
-    # Layer III — bottom row
+    # Layer III — bottom anchor
     20:(0.50, 0.10),
 }
 
