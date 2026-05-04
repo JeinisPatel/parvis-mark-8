@@ -2980,7 +2980,10 @@ NP_SPINE = {
 
 # Spine viewBox sized for a 230px-wide column at ~620px tall, leaving room for
 # the bottom N20 readout to render inside the spine SVG.
-SPINE_W, SPINE_H = 230, 620
+# Spine viewBox sized for a 230px-wide column. Height = DAG region (530)
+# + N20 readout (60) + Bloch (200) + margins (80).
+SPINE_W, SPINE_H = 230, 870
+SPINE_DAG_H = 540  # vertical region reserved for the DAG itself
 
 def render_dag_spine_svg(post):
     """
@@ -2993,9 +2996,8 @@ def render_dag_spine_svg(post):
     plus the live decimal until push ten replaces decimals with bands.
     """
     def mpl_to_svg(mx, my):
-        # Spine viewBox uses y_top = 0.05, y_bot = 1.00 (extra room at top
-        # for the layer label, extra at bottom for the N20 readout box)
-        return (mx * (SPINE_W - 24)) + 12, ((1.0 - my) / 1.05) * (SPINE_H - 90) + 18
+        # DAG occupies the top SPINE_DAG_H pixels; readout and Bloch sit below.
+        return (mx * (SPINE_W - 24)) + 12, ((1.0 - my) / 1.05) * (SPINE_DAG_H - 30) + 18
 
     def box_dims(nid):
         if isinstance(nid, str):
@@ -3112,33 +3114,193 @@ def render_dag_spine_svg(post):
 
         out.append('</g>')
 
-    # ── N20 readout panel — sits below the DAG, inside the spine SVG
+    # ── N20 readout panel — sits below the DAG, inside the spine SVG.
+    # Empty-state A: when no case data has been entered, render the readout
+    # in italic muted register matching the Summary tab's "Awaiting case
+    # data" card. Once any evidence is entered, the live posterior + band
+    # take over.
     p20 = post.get(20, 0.249)
-    bl, bc, bg = rb(p20)
-    rd_x, rd_y, rd_w, rd_h = 8, SPINE_H - 70, SPINE_W - 16, 60
+    is_empty = _case_is_empty()
+    rd_x, rd_w, rd_h = 8, SPINE_W - 16, 64
+    rd_y = SPINE_DAG_H + 8
+
+    if is_empty:
+        # Empty state — match the main page register
+        out.append(
+            f'<rect x="{rd_x}" y="{rd_y}" width="{rd_w}" height="{rd_h}" rx="6" '
+            f'fill="#FBFAF7" stroke="#E0DDD6" stroke-width="1"/>'
+        )
+        out.append(
+            f'<text x="{rd_x+rd_w/2:.0f}" y="{rd_y+18}" text-anchor="middle" '
+            f'font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" '
+            f'fill="#999" letter-spacing="0.06em">N20 · DESIGNATION RISK</text>'
+        )
+        out.append(
+            f'<text x="{rd_x+rd_w/2:.0f}" y="{rd_y+42}" text-anchor="middle" '
+            f'font-family="Fraunces,Georgia,serif" font-style="italic" '
+            f'font-size="13" fill="#9E9E9E">Awaiting case data</text>'
+        )
+    else:
+        bl, bc, bg = rb(p20)
+        out.append(
+            f'<rect x="{rd_x}" y="{rd_y}" width="{rd_w}" height="{rd_h}" rx="6" '
+            f'fill="white" stroke="{bc}66" stroke-width="1"/>'
+        )
+        out.append(
+            f'<text x="{rd_x+10}" y="{rd_y+15}" '
+            f'font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" '
+            f'fill="#888" letter-spacing="0.06em">N20 · DESIGNATION RISK</text>'
+        )
+        out.append(
+            f'<text x="{rd_x+10}" y="{rd_y+36}" '
+            f'font-family="Fraunces,Georgia,serif" font-size="14" '
+            f'font-weight="600" fill="{bc}">{p20*100:.1f}%  {bl}</text>'
+        )
+        out.append(
+            f'<text x="{rd_x+10}" y="{rd_y+54}" '
+            f'font-family="Fraunces,serif" font-style="italic" '
+            f'font-size="7.5" fill="#888">'
+            f'doctrinal posture — not a probability</text>'
+        )
+
+    # ── Mini Bloch sphere (Mark 8 push nine.e — pure SVG, no script) ─────────
+    # Reuses the Quantum tab's projection convention but renders as static
+    # SVG inside the same parent SVG block. Empty state: dim the sphere and
+    # the state-vector cone, render the prior position in muted grey.
+    bl_cx, bl_cy = SPINE_W / 2, SPINE_DAG_H + 8 + rd_h + 110
+    bl_R = 75
+    # State vector angles
+    rw_local = sum(post.get(n, .5) for n in [2, 3, 4, 18]) / 4
+    mw_local = sum(post.get(n, .5) for n in [5, 6, 10, 12, 14]) / 5
+    # Match Quantum tab convention
+    p_clamped = max(-1.0, min(1.0, 1 - 2 * p20))
+    theta = math.acos(p_clamped)
+    phi = math.atan2(rw_local, mw_local)
+    # Static viewing angles
+    ry, rx = 0.5, 0.25
+
+    def bloch_proj(x, y, z):
+        # Y-axis rotation (azimuthal)
+        x1 = x * math.cos(ry) - z * math.sin(ry)
+        y1 = y
+        z1 = x * math.sin(ry) + z * math.cos(ry)
+        # X-axis rotation (polar tilt)
+        x2 = x1
+        y2 = y1 * math.cos(rx) - z1 * math.sin(rx)
+        z2 = y1 * math.sin(rx) + z1 * math.cos(rx)
+        # Perspective projection
+        f = 3.2
+        return (bl_cx + x2 * bl_R * f / (f + z2 + 2),
+                bl_cy - y2 * bl_R * f / (f + z2 + 2))
+
+    # Bloch container box
     out.append(
-        f'<rect x="{rd_x}" y="{rd_y}" width="{rd_w}" height="{rd_h}" rx="6" '
-        f'fill="white" stroke="{bc}66" stroke-width="1"/>'
+        f'<rect x="{rd_x}" y="{rd_y + rd_h + 8}" '
+        f'width="{rd_w}" height="220" rx="6" '
+        f'fill="white" stroke="#E0DDD6" stroke-width="1"/>'
     )
-    # Header inside readout box
     out.append(
-        f'<text x="{rd_x+10}" y="{rd_y+13}" '
+        f'<text x="{rd_x+rd_w/2:.0f}" y="{rd_y + rd_h + 24}" text-anchor="middle" '
         f'font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" '
-        f'fill="#888" letter-spacing="0.06em">N20 · DESIGNATION RISK</text>'
+        f'fill="#888" letter-spacing="0.06em">QBism · belief state |ψ⟩</text>'
     )
-    # Big number
+
+    # Sphere outline (great circle from current view)
     out.append(
-        f'<text x="{rd_x+10}" y="{rd_y+33}" '
-        f'font-family="Fraunces,Georgia,serif" font-size="14" '
-        f'font-weight="600" fill="{bc}">{p20*100:.1f}%  {bl}</text>'
+        f'<circle cx="{bl_cx:.1f}" cy="{bl_cy:.1f}" r="{bl_R}" '
+        f'fill="rgba(220,225,235,0.18)" stroke="#999" stroke-width="0.8"/>'
     )
-    # Subtitle line — kept short to fit inside box
+
+    # Equator — projected from points around (cos(a), 0, sin(a))
+    eq_pts = []
+    for a_deg in range(0, 361, 6):
+        a = math.radians(a_deg)
+        ex, ey = bloch_proj(math.cos(a), 0, math.sin(a))
+        eq_pts.append(f"{ex:.1f},{ey:.1f}")
     out.append(
-        f'<text x="{rd_x+10}" y="{rd_y+50}" '
-        f'font-family="Fraunces,serif" font-style="italic" '
-        f'font-size="7.5" fill="#888">'
-        f'doctrinal posture — not a probability</text>'
+        f'<polyline points="{" ".join(eq_pts)}" '
+        f'fill="none" stroke="#666" stroke-width="0.7" opacity="0.55"/>'
     )
+
+    # Pole axis (north–south)
+    npx, npy = bloch_proj(0, 1, 0)
+    spx, spy = bloch_proj(0, -1, 0)
+    out.append(
+        f'<line x1="{npx:.1f}" y1="{npy:.1f}" '
+        f'x2="{spx:.1f}" y2="{spy:.1f}" '
+        f'stroke="#1B2A4A" stroke-width="0.7" stroke-dasharray="3 3" opacity="0.45"/>'
+    )
+
+    # R / M axis terminator labels (icons only at this scale)
+    rxp, ryp = bloch_proj(0.95, 0, 0)
+    mxp, myp = bloch_proj(-0.95, 0, 0)
+    out.append(
+        f'<text x="{rxp+3:.1f}" y="{ryp+3:.1f}" '
+        f'font-family="monospace" font-size="8" font-weight="700" '
+        f'fill="#C0392B">R</text>'
+    )
+    out.append(
+        f'<text x="{mxp-9:.1f}" y="{myp+3:.1f}" '
+        f'font-family="monospace" font-size="8" font-weight="700" '
+        f'fill="#1A6B35">M</text>'
+    )
+
+    # State vector — colour by risk level (or muted grey when empty)
+    if is_empty:
+        vec_col = "#BBBBBB"
+        vec_op  = 0.55
+    else:
+        vec_col = "#C0392B" if p20 >= 0.55 else "#B8850A" if p20 >= 0.35 else "#1A6B35"
+        vec_op  = 1.0
+    svx = math.sin(theta) * math.cos(phi)
+    svy = math.cos(theta)
+    svz = math.sin(theta) * math.sin(phi)
+    ovx, ovy = bloch_proj(0, 0, 0)
+    vpx, vpy = bloch_proj(svx * 0.92, svy * 0.92, svz * 0.92)
+    out.append(
+        f'<line x1="{ovx:.1f}" y1="{ovy:.1f}" '
+        f'x2="{vpx:.1f}" y2="{vpy:.1f}" '
+        f'stroke="{vec_col}" stroke-width="2.2" opacity="{vec_op}" '
+        f'stroke-linecap="round"/>'
+    )
+    # Arrowhead
+    ang = math.atan2(vpy - ovy, vpx - ovx)
+    ah1x = vpx - 7 * math.cos(ang - 0.4)
+    ah1y = vpy - 7 * math.sin(ang - 0.4)
+    ah2x = vpx - 7 * math.cos(ang + 0.4)
+    ah2y = vpy - 7 * math.sin(ang + 0.4)
+    out.append(
+        f'<polygon points="{vpx:.1f},{vpy:.1f} '
+        f'{ah1x:.1f},{ah1y:.1f} {ah2x:.1f},{ah2y:.1f}" '
+        f'fill="{vec_col}" opacity="{vec_op}"/>'
+    )
+
+    # Centre dot
+    out.append(
+        f'<circle cx="{ovx:.1f}" cy="{ovy:.1f}" r="1.8" fill="#999"/>'
+    )
+
+    # Pre-decisional ambiguity ring (if equally split posterior — empty-state-aware)
+    si_local = 1.0 - abs(2 * p20 - 1)
+    if si_local > 0.6 and not is_empty:
+        ring_pts = []
+        for a_deg in range(0, 361, 6):
+            a = math.radians(a_deg)
+            ex, ey = bloch_proj(math.cos(a), 0, math.sin(a))
+            ring_pts.append(f"{ex:.1f},{ey:.1f}")
+        out.append(
+            f'<polyline points="{" ".join(ring_pts)}" '
+            f'fill="none" stroke="#B8850A" stroke-width="1.5" '
+            f'stroke-dasharray="4 4" opacity="0.6"/>'
+        )
+
+    # Empty-state caption inside Bloch box
+    if is_empty:
+        out.append(
+            f'<text x="{rd_x+rd_w/2:.0f}" y="{rd_y + rd_h + 220}" text-anchor="middle" '
+            f'font-family="Fraunces,serif" font-style="italic" '
+            f'font-size="7.5" fill="#999">prior — no case data</text>'
+        )
 
     out.append('</svg>')
     return "".join(out)
